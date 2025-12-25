@@ -50,6 +50,12 @@ class DrawingShape {
   /// 表示するかどうか
   final bool isVisible;
 
+  /// 辺の長さを表示するか
+  final bool showEdgeLabels;
+
+  /// 名前ラベルを表示するか
+  final bool showNameLabel;
+
   /// 作成日時
   final DateTime createdAt;
 
@@ -65,6 +71,8 @@ class DrawingShape {
     required this.coordinatesJson,
     this.radius,
     this.isVisible = true,
+    this.showEdgeLabels = true,
+    this.showNameLabel = true,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : createdAt = createdAt ?? DateTime.now(),
@@ -123,7 +131,9 @@ class DrawingShape {
       colorHex: map['color_hex'] as String? ?? 'FFFF9800',
       coordinatesJson: map['coordinates_json'] as String,
       radius: (map['radius'] as num?)?.toDouble(),
-      isVisible: (map['is_visible'] as int?) == 1,
+      isVisible: (map['is_visible'] as int?) != 0,
+      showEdgeLabels: (map['show_edge_labels'] as int?) != 0,
+      showNameLabel: (map['show_name_label'] as int?) != 0,
       createdAt: map['created_at'] != null
           ? DateTime.parse(map['created_at'] as String)
           : null,
@@ -144,6 +154,8 @@ class DrawingShape {
       'coordinates_json': coordinatesJson,
       'radius': radius,
       'is_visible': isVisible ? 1 : 0,
+      'show_edge_labels': showEdgeLabels ? 1 : 0,
+      'show_name_label': showNameLabel ? 1 : 0,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -175,6 +187,8 @@ class DrawingShape {
     String? coordinatesJson,
     double? radius,
     bool? isVisible,
+    bool? showEdgeLabels,
+    bool? showNameLabel,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -187,6 +201,8 @@ class DrawingShape {
       coordinatesJson: coordinatesJson ?? this.coordinatesJson,
       radius: radius ?? this.radius,
       isVisible: isVisible ?? this.isVisible,
+      showEdgeLabels: showEdgeLabels ?? this.showEdgeLabels,
+      showNameLabel: showNameLabel ?? this.showNameLabel,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );

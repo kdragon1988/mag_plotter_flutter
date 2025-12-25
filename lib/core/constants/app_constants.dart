@@ -41,11 +41,11 @@ class AppConstants {
   // マップ設定
   // ============================================
 
-  /// デフォルト緯度（東京）
-  static const double defaultLatitude = 35.6812;
+  /// デフォルト緯度（東京駅）
+  static const double defaultLatitude = 35.6812362;
 
-  /// デフォルト経度（東京）
-  static const double defaultLongitude = 139.7671;
+  /// デフォルト経度（東京駅）
+  static const double defaultLongitude = 139.7649308;
 
   /// デフォルトズームレベル
   static const double defaultZoom = 15.0;

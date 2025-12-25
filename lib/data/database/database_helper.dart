@@ -27,7 +27,7 @@ class DatabaseHelper {
   static const String _databaseName = 'mag_plotter.db';
 
   /// データベースバージョン
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 3;
 
   /// データベースを取得
   Future<Database> get database async {
@@ -68,11 +68,28 @@ class DatabaseHelper {
       )
     ''');
 
+    // 計測レイヤーテーブル
+    await db.execute('''
+      CREATE TABLE measurement_layers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mission_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        color_hex TEXT DEFAULT 'FF00FFFF',
+        point_size REAL DEFAULT 0.5,
+        blur_intensity REAL DEFAULT 0.0,
+        is_visible INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
+      )
+    ''');
+
     // 計測ポイントテーブル
     await db.execute('''
       CREATE TABLE measurement_points (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         mission_id INTEGER NOT NULL,
+        layer_id INTEGER,
         latitude REAL NOT NULL,
         longitude REAL NOT NULL,
         altitude REAL,
@@ -84,7 +101,8 @@ class DatabaseHelper {
         noise REAL NOT NULL,
         timestamp TEXT NOT NULL,
         memo TEXT,
-        FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
+        FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE,
+        FOREIGN KEY (layer_id) REFERENCES measurement_layers(id) ON DELETE SET NULL
       )
     ''');
 
@@ -99,6 +117,8 @@ class DatabaseHelper {
         coordinates_json TEXT NOT NULL,
         radius REAL,
         is_visible INTEGER DEFAULT 1,
+        show_edge_labels INTEGER DEFAULT 1,
+        show_name_label INTEGER DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
@@ -107,15 +127,58 @@ class DatabaseHelper {
 
     // インデックス作成
     await db.execute(
+        'CREATE INDEX idx_measurement_layers_mission ON measurement_layers(mission_id)');
+    await db.execute(
         'CREATE INDEX idx_measurement_points_mission ON measurement_points(mission_id)');
+    await db.execute(
+        'CREATE INDEX idx_measurement_points_layer ON measurement_points(layer_id)');
     await db.execute(
         'CREATE INDEX idx_drawing_shapes_mission ON drawing_shapes(mission_id)');
   }
 
   /// データベースアップグレード時の処理
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // 将来のバージョンアップ時に使用
-    // 例: if (oldVersion < 2) { ... }
+    // バージョン2: 描画図形に表示設定カラムを追加
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE drawing_shapes ADD COLUMN show_edge_labels INTEGER DEFAULT 1'
+      );
+      await db.execute(
+        'ALTER TABLE drawing_shapes ADD COLUMN show_name_label INTEGER DEFAULT 1'
+      );
+    }
+
+    // バージョン3: 計測レイヤー機能を追加
+    if (oldVersion < 3) {
+      // 計測レイヤーテーブルを作成
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS measurement_layers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          mission_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          color_hex TEXT DEFAULT 'FF00FFFF',
+          point_size REAL DEFAULT 0.5,
+          blur_intensity REAL DEFAULT 0.0,
+          is_visible INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
+        )
+      ''');
+
+      // 計測ポイントにlayer_idカラムを追加
+      await db.execute(
+        'ALTER TABLE measurement_points ADD COLUMN layer_id INTEGER'
+      );
+
+      // インデックスを作成
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_measurement_layers_mission ON measurement_layers(mission_id)'
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_measurement_points_layer ON measurement_points(layer_id)'
+      );
+    }
   }
 
   /// データベースを閉じる

@@ -14,6 +14,9 @@ class MeasurementPoint {
   /// 紐づくミッションID
   final int missionId;
 
+  /// 紐づくレイヤーID（null=デフォルトレイヤー）
+  final int? layerId;
+
   /// 緯度
   final double latitude;
 
@@ -50,6 +53,7 @@ class MeasurementPoint {
   MeasurementPoint({
     this.id,
     required this.missionId,
+    this.layerId,
     required this.latitude,
     required this.longitude,
     this.altitude,
@@ -68,6 +72,7 @@ class MeasurementPoint {
     return MeasurementPoint(
       id: map['id'] as int?,
       missionId: map['mission_id'] as int,
+      layerId: map['layer_id'] as int?,
       latitude: (map['latitude'] as num).toDouble(),
       longitude: (map['longitude'] as num).toDouble(),
       altitude: (map['altitude'] as num?)?.toDouble(),
@@ -89,6 +94,7 @@ class MeasurementPoint {
     return {
       if (id != null) 'id': id,
       'mission_id': missionId,
+      'layer_id': layerId,
       'latitude': latitude,
       'longitude': longitude,
       'altitude': altitude,

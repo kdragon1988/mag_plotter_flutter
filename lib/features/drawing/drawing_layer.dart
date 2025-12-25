@@ -1,6 +1,7 @@
 /// MAG PLOTTER 描画レイヤー
 ///
 /// 地図上に描画中の図形と保存済み図形を表示するレイヤー
+/// 各辺の長さを地図上に直接表示
 library;
 
 import 'dart:math' as math;
@@ -17,9 +18,13 @@ class DrawingOverlay extends StatelessWidget {
   /// 描画コントローラー
   final DrawingController controller;
 
+  /// 辺の長さを表示するか
+  final bool showEdgeLabels;
+
   const DrawingOverlay({
     super.key,
     required this.controller,
+    this.showEdgeLabels = true,
   });
 
   @override
@@ -32,16 +37,25 @@ class DrawingOverlay extends StatelessWidget {
         switch (controller.mode) {
           case DrawingMode.polygon:
             layers.add(_buildPolygonLayer());
+            if (showEdgeLabels) {
+              layers.add(_buildEdgeLabelsLayer(closed: true));
+            }
             layers.add(_buildPointsLayer());
             break;
 
           case DrawingMode.polyline:
             layers.add(_buildPolylineLayer());
+            if (showEdgeLabels) {
+              layers.add(_buildEdgeLabelsLayer(closed: false));
+            }
             layers.add(_buildPointsLayer());
             break;
 
           case DrawingMode.circle:
             layers.add(_buildCircleLayer());
+            if (showEdgeLabels) {
+              layers.add(_buildRadiusLabel());
+            }
             if (controller.circleCenter != null) {
               layers.add(_buildCircleCenterMarker());
             }
@@ -87,6 +101,133 @@ class DrawingOverlay extends StatelessWidget {
           points: controller.points,
           color: controller.selectedColor,
           strokeWidth: 3,
+        ),
+      ],
+    );
+  }
+
+  /// 各辺の長さラベルを表示
+  Widget _buildEdgeLabelsLayer({required bool closed}) {
+    final points = controller.points;
+    if (points.length < 2) return const SizedBox.shrink();
+
+    final markers = <Marker>[];
+
+    // 各辺のラベル
+    for (int i = 0; i < points.length - 1; i++) {
+      final from = points[i];
+      final to = points[i + 1];
+      final midpoint = _getMidpoint(from, to);
+      final distance = _calculateDistance(from, to);
+
+      markers.add(_createEdgeLabelMarker(
+        point: midpoint,
+        distance: distance,
+        color: controller.selectedColor,
+      ));
+    }
+
+    // 閉じるポリゴンの場合、最後の辺も表示
+    if (closed && points.length >= 3) {
+      final from = points.last;
+      final to = points.first;
+      final midpoint = _getMidpoint(from, to);
+      final distance = _calculateDistance(from, to);
+
+      markers.add(_createEdgeLabelMarker(
+        point: midpoint,
+        distance: distance,
+        color: AppColors.statusWarning, // 閉じる辺は黄色
+        isClosing: true,
+      ));
+    }
+
+    return MarkerLayer(markers: markers);
+  }
+
+  /// 辺のラベルマーカーを作成（ミニマルデザイン）
+  Marker _createEdgeLabelMarker({
+    required LatLng point,
+    required double distance,
+    required Color color,
+    bool isClosing = false,
+  }) {
+    return Marker(
+      point: point,
+      width: 56,
+      height: 18,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Text(
+          _formatDistance(distance),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            color: isClosing ? AppColors.statusWarning : color,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 円の半径ラベルを表示（ミニマルデザイン）
+  Widget _buildRadiusLabel() {
+    if (controller.circleCenter == null || controller.circleRadius <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    // 半径線の終点（中心から右方向）
+    final center = controller.circleCenter!;
+    final radiusEndLat = center.latitude;
+    final radiusEndLng = center.longitude +
+        (controller.circleRadius / 111320) / math.cos(center.latitude * math.pi / 180);
+    final radiusEnd = LatLng(radiusEndLat, radiusEndLng);
+    final midpoint = _getMidpoint(center, radiusEnd);
+
+    return Stack(
+      children: [
+        // 半径線
+        PolylineLayer(
+          polylines: [
+            Polyline(
+              points: [center, radiusEnd],
+              color: controller.selectedColor.withValues(alpha: 0.6),
+              strokeWidth: 1.5,
+            ),
+          ],
+        ),
+        // 半径ラベル
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: midpoint,
+              width: 60,
+              height: 18,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Text(
+                  'r ${_formatDistance(controller.circleRadius)}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: controller.selectedColor,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -188,9 +329,44 @@ class DrawingOverlay extends StatelessWidget {
       ],
     );
   }
+
+  /// 2点の中点を取得
+  LatLng _getMidpoint(LatLng from, LatLng to) {
+    return LatLng(
+      (from.latitude + to.latitude) / 2,
+      (from.longitude + to.longitude) / 2,
+    );
+  }
+
+  /// 2点間の距離を計算 [m]
+  double _calculateDistance(LatLng from, LatLng to) {
+    const earthRadius = 6371000.0;
+    final lat1 = from.latitude * math.pi / 180;
+    final lat2 = to.latitude * math.pi / 180;
+    final dLat = (to.latitude - from.latitude) * math.pi / 180;
+    final dLng = (to.longitude - from.longitude) * math.pi / 180;
+
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * math.sin(dLng / 2) * math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
+    return earthRadius * c;
+  }
+
+  /// 距離をフォーマット
+  String _formatDistance(double meters) {
+    if (meters >= 1000) {
+      return '${(meters / 1000).toStringAsFixed(2)}km';
+    } else {
+      return '${meters.toStringAsFixed(1)}m';
+    }
+  }
 }
 
 /// 保存済み図形を表示するレイヤー
+/// 
+/// シンプルな表示：図形 + 中央に名前と面積/距離のみ
+/// 辺の長さは表示しない（描画中のみ表示）
 class SavedShapesLayer extends StatelessWidget {
   /// 表示する図形リスト
   final List<DrawingShape> shapes;
@@ -216,7 +392,7 @@ class SavedShapesLayer extends StatelessWidget {
         .where((s) => s.type == ShapeType.polygon)
         .map((s) => Polygon(
               points: s.coordinates,
-              color: s.color.withValues(alpha: 0.3),
+              color: s.color.withValues(alpha: 0.2),
               borderColor: s.color,
               borderStrokeWidth: 2,
               isFilled: true,
@@ -232,7 +408,7 @@ class SavedShapesLayer extends StatelessWidget {
         .map((s) => Polyline(
               points: s.coordinates,
               color: s.color,
-              strokeWidth: 2,
+              strokeWidth: 2.5,
             ))
         .toList();
     if (polylines.isNotEmpty) {
@@ -246,7 +422,7 @@ class SavedShapesLayer extends StatelessWidget {
               point: s.coordinates.first,
               radius: s.radius!,
               useRadiusInMeter: true,
-              color: s.color.withValues(alpha: 0.3),
+              color: s.color.withValues(alpha: 0.2),
               borderColor: s.color,
               borderStrokeWidth: 2,
             ))
@@ -255,55 +431,147 @@ class SavedShapesLayer extends StatelessWidget {
       layers.add(CircleLayer(circles: circles));
     }
 
-    // ラベル
-    layers.add(_buildLabelsLayer(visibleShapes));
+    // 辺の長さラベル（設定がONの図形のみ）
+    layers.add(_buildEdgeLabelsLayer(visibleShapes));
+
+    // 名前ラベル（設定がONの図形のみ）
+    layers.add(_buildNameLabelsLayer(visibleShapes));
 
     return Stack(children: layers);
   }
 
-  /// ラベルレイヤーの構築
-  Widget _buildLabelsLayer(List<DrawingShape> shapes) {
+  /// 辺の長さラベルレイヤー
+  Widget _buildEdgeLabelsLayer(List<DrawingShape> shapes) {
+    final markers = <Marker>[];
+
+    for (final shape in shapes.where((s) => s.showEdgeLabels)) {
+      if (shape.type == ShapeType.circle) {
+        // サークルの場合は半径ラベル
+        if (shape.radius != null && shape.coordinates.isNotEmpty) {
+          final center = shape.coordinates.first;
+          final radiusEndLat = center.latitude;
+          final radiusEndLng = center.longitude +
+              (shape.radius! / 111320) /
+                  math.cos(center.latitude * math.pi / 180);
+          final radiusEnd = LatLng(radiusEndLat, radiusEndLng);
+          final midpoint = LatLng(
+            (center.latitude + radiusEnd.latitude) / 2,
+            (center.longitude + radiusEnd.longitude) / 2,
+          );
+
+          markers.add(_createEdgeLabelMarker(
+            point: midpoint,
+            text: 'r ${_formatDistance(shape.radius!)}',
+            color: shape.color,
+          ));
+        }
+      } else {
+        // ポリゴン/ポリラインの場合は各辺のラベル
+        final points = shape.coordinates;
+        if (points.length >= 2) {
+          for (int i = 0; i < points.length - 1; i++) {
+            final from = points[i];
+            final to = points[i + 1];
+            final midpoint = LatLng(
+              (from.latitude + to.latitude) / 2,
+              (from.longitude + to.longitude) / 2,
+            );
+            final distance = _calculateDistance(from, to);
+
+            markers.add(_createEdgeLabelMarker(
+              point: midpoint,
+              text: _formatDistance(distance),
+              color: shape.color,
+            ));
+          }
+
+          // ポリゴンの閉じる辺
+          if (shape.type == ShapeType.polygon && points.length >= 3) {
+            final from = points.last;
+            final to = points.first;
+            final midpoint = LatLng(
+              (from.latitude + to.latitude) / 2,
+              (from.longitude + to.longitude) / 2,
+            );
+            final distance = _calculateDistance(from, to);
+
+            markers.add(_createEdgeLabelMarker(
+              point: midpoint,
+              text: _formatDistance(distance),
+              color: shape.color,
+            ));
+          }
+        }
+      }
+    }
+
+    return MarkerLayer(markers: markers);
+  }
+
+  /// 辺のラベルマーカーを作成
+  Marker _createEdgeLabelMarker({
+    required LatLng point,
+    required String text,
+    required Color color,
+  }) {
+    return Marker(
+      point: point,
+      width: 56,
+      height: 18,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 名前ラベルレイヤー（名前のみ表示）
+  Widget _buildNameLabelsLayer(List<DrawingShape> shapes) {
     return MarkerLayer(
-      markers: shapes.map((shape) {
+      markers: shapes.where((s) => s.showNameLabel).map((shape) {
         final center = shape.center;
         if (center == null) return null;
 
         return Marker(
           point: center,
-          width: 120,
-          height: 40,
+          width: 100,
+          height: 24,
           child: GestureDetector(
             onTap: () => onShapeTap?.call(shape),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
-                color: AppColors.backgroundCard.withValues(alpha: 0.9),
+                color: Colors.black.withValues(alpha: 0.75),
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: shape.color),
+                border: Border.all(
+                  color: shape.color.withValues(alpha: 0.6),
+                  width: 1,
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    shape.name,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: shape.color,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    _getShapeMeasurement(shape),
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 8,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
+              child: Text(
+                shape.name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ),
@@ -325,7 +593,8 @@ class SavedShapesLayer extends StatelessWidget {
 
       case ShapeType.circle:
         if (shape.radius != null) {
-          return 'r: ${_formatDistance(shape.radius!)}';
+          final area = math.pi * shape.radius! * shape.radius!;
+          return _formatArea(area);
         }
         return '';
     }
@@ -372,10 +641,10 @@ class SavedShapesLayer extends StatelessWidget {
   }
 
   String _formatArea(double area) {
-    if (area >= 10000) {
-      return '${(area / 10000).toStringAsFixed(2)} ha';
+    if (area >= 1000000) {
+      return '${(area / 1000000).toStringAsFixed(2)} km²';
     } else {
-      return '${area.toStringAsFixed(1)} m²';
+      return '${area.toStringAsFixed(0)} m²';
     }
   }
 
@@ -387,4 +656,3 @@ class SavedShapesLayer extends StatelessWidget {
     }
   }
 }
-
