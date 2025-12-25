@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import '../measurement/measurement_screen.dart';
 
 /// ホーム画面（ミッション一覧）
 ///
@@ -214,10 +215,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 新規ミッション作成
   void _createMission() {
-    // TODO: ミッション作成ダイアログを表示
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ミッション作成機能は開発中です'),
+    // 計測画面へ直接遷移（デモ用）
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const MeasurementScreen(
+          missionName: 'NEW MISSION',
+        ),
       ),
     );
   }
