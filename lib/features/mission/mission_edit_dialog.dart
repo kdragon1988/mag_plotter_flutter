@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../data/models/mission.dart';
+import '../../services/settings_service.dart';
 
 /// ミッション編集ダイアログ
 ///
@@ -40,6 +41,9 @@ class _MissionEditDialogState extends State<MissionEditDialog> {
   /// フォームキー
   final _formKey = GlobalKey<FormState>();
 
+  /// 設定サービス
+  final SettingsService _settingsService = SettingsService();
+
   /// コントローラー
   late TextEditingController _nameController;
   late TextEditingController _locationController;
@@ -61,18 +65,20 @@ class _MissionEditDialogState extends State<MissionEditDialog> {
     _nameController = TextEditingController(text: m?.name ?? '');
     _locationController = TextEditingController(text: m?.location ?? '');
     _assigneeController = TextEditingController(text: m?.assignee ?? '');
+
+    // 新規作成時はグローバル設定のデフォルト値を使用
     _refMagController = TextEditingController(
-      text: (m?.referenceMag ?? AppConstants.defaultReferenceMag).toString(),
+      text: (m?.referenceMag ?? _settingsService.referenceMag).toString(),
     );
     _safeThresholdController = TextEditingController(
-      text: (m?.safeThreshold ?? AppConstants.defaultSafeThreshold).toString(),
+      text: (m?.safeThreshold ?? _settingsService.safeThreshold).toString(),
     );
     _dangerThresholdController = TextEditingController(
       text:
-          (m?.dangerThreshold ?? AppConstants.defaultDangerThreshold).toString(),
+          (m?.dangerThreshold ?? _settingsService.dangerThreshold).toString(),
     );
     _intervalController = TextEditingController(
-      text: (m?.measurementInterval ?? AppConstants.defaultMeasurementInterval)
+      text: (m?.measurementInterval ?? _settingsService.measurementInterval)
           .toString(),
     );
     _memoController = TextEditingController(text: m?.memo ?? '');
@@ -346,13 +352,13 @@ class _MissionEditDialogState extends State<MissionEditDialog> {
       location: _locationController.text.trim(),
       assignee: _assigneeController.text.trim(),
       referenceMag:
-          double.tryParse(_refMagController.text) ?? AppConstants.defaultReferenceMag,
+          double.tryParse(_refMagController.text) ?? _settingsService.referenceMag,
       safeThreshold: double.tryParse(_safeThresholdController.text) ??
-          AppConstants.defaultSafeThreshold,
+          _settingsService.safeThreshold,
       dangerThreshold: double.tryParse(_dangerThresholdController.text) ??
-          AppConstants.defaultDangerThreshold,
+          _settingsService.dangerThreshold,
       measurementInterval: double.tryParse(_intervalController.text) ??
-          AppConstants.defaultMeasurementInterval,
+          _settingsService.measurementInterval,
       memo: _memoController.text.trim().isEmpty ? null : _memoController.text.trim(),
       createdAt: widget.mission?.createdAt,
       isCompleted: widget.mission?.isCompleted ?? false,

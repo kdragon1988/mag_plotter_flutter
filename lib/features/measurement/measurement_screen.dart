@@ -18,6 +18,7 @@ import '../../data/repositories/mission_repository.dart';
 import '../../data/repositories/measurement_point_repository.dart';
 import '../../services/magnetometer_service.dart';
 import '../../services/location_service.dart';
+import '../../services/settings_service.dart';
 import '../drawing/drawing_mode.dart';
 import '../drawing/drawing_controller.dart';
 import '../drawing/drawing_toolbar.dart';
@@ -47,6 +48,9 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   final LocationService _locationService = LocationService();
   final DrawingController _drawingController = DrawingController();
 
+  // サービス
+  final SettingsService _settingsService = SettingsService();
+
   // リポジトリ
   final MissionRepository _missionRepo = MissionRepository();
   final MeasurementPointRepository _pointRepo = MeasurementPointRepository();
@@ -54,6 +58,9 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   // サブスクリプション
   StreamSubscription<MagnetometerData>? _magSubscription;
   StreamSubscription<LocationData>? _locationSubscription;
+
+  // 自動計測用タイマー
+  Timer? _autoMeasurementTimer;
 
   // 状態
   Mission? _mission;
@@ -67,6 +74,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   List<MeasurementPoint> _measurementPoints = [];
   List<DrawingShape> _drawingShapes = [];
   bool _isMeasuring = false;
+  bool _isAutoMode = false;
   bool _sensorsInitialized = false;
   bool _showDrawingToolbar = false;
   MeasurementPoint? _selectedPoint;
@@ -74,6 +82,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   @override
   void initState() {
     super.initState();
+    _isAutoMode = _settingsService.isAutoMeasurement;
     _loadMission();
     _initializeServices();
   }
@@ -90,15 +99,22 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           _measurementPoints = points;
         });
 
-        // 閾値を設定
-        if (mission != null) {
-          _magnetometerService.setThresholds(
-            referenceMag: mission.referenceMag,
-            safeThreshold: mission.safeThreshold,
-            dangerThreshold: mission.dangerThreshold,
-          );
-        }
+        // 閾値を設定（ミッション設定があればそれを使用、なければグローバル設定）
+        _magnetometerService.setThresholds(
+          referenceMag: mission?.referenceMag ?? _settingsService.referenceMag,
+          safeThreshold:
+              mission?.safeThreshold ?? _settingsService.safeThreshold,
+          dangerThreshold:
+              mission?.dangerThreshold ?? _settingsService.dangerThreshold,
+        );
       }
+    } else {
+      // ミッションがない場合はグローバル設定を使用
+      _magnetometerService.setThresholds(
+        referenceMag: _settingsService.referenceMag,
+        safeThreshold: _settingsService.safeThreshold,
+        dangerThreshold: _settingsService.dangerThreshold,
+      );
     }
   }
 
@@ -138,6 +154,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
 
   @override
   void dispose() {
+    _autoMeasurementTimer?.cancel();
     _magSubscription?.cancel();
     _locationSubscription?.cancel();
     _magnetometerService.dispose();
@@ -340,6 +357,17 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                 ),
                 _buildStatusIndicator(),
                 const SizedBox(width: 8),
+                // 自動/手動モード切り替えボタン
+                IconButton(
+                  onPressed: _toggleAutoMode,
+                  tooltip: _isAutoMode ? '手動計測に切り替え' : '自動計測に切り替え',
+                  icon: Icon(
+                    _isAutoMode ? Icons.autorenew : Icons.touch_app,
+                    color: _isAutoMode
+                        ? AppColors.accentPrimary
+                        : AppColors.textSecondary,
+                  ),
+                ),
                 // 描画ボタン
                 IconButton(
                   onPressed: () => setState(() => _showDrawingToolbar = !_showDrawingToolbar),
@@ -523,29 +551,74 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       left: 0,
       right: 0,
       child: Center(
-        child: GestureDetector(
-          onTap: _toggleMeasurement,
-          child: Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _isMeasuring ? AppColors.statusDanger : AppColors.accentPrimary,
-              boxShadow: [
-                BoxShadow(
-                  color: (_isMeasuring ? AppColors.statusDanger : AppColors.accentPrimary)
-                      .withValues(alpha: 0.5),
-                  blurRadius: 20,
-                  spreadRadius: 5,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // モード表示
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.backgroundCard.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _isAutoMode ? Icons.autorenew : Icons.touch_app,
+                    size: 14,
+                    color: _isAutoMode
+                        ? AppColors.accentPrimary
+                        : AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _isAutoMode ? 'AUTO' : 'MANUAL',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: _isAutoMode
+                          ? AppColors.accentPrimary
+                          : AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 計測ボタン
+            GestureDetector(
+              onTap: _toggleMeasurement,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _isMeasuring
+                      ? AppColors.statusDanger
+                      : AppColors.accentPrimary,
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_isMeasuring
+                              ? AppColors.statusDanger
+                              : AppColors.accentPrimary)
+                          .withValues(alpha: 0.5),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                    ),
+                  ],
                 ),
-              ],
+                child: Icon(
+                  _isMeasuring ? Icons.stop : Icons.play_arrow,
+                  color:
+                      _isMeasuring ? Colors.white : AppColors.backgroundPrimary,
+                  size: 40,
+                ),
+              ),
             ),
-            child: Icon(
-              _isMeasuring ? Icons.stop : Icons.play_arrow,
-              color: _isMeasuring ? Colors.white : AppColors.backgroundPrimary,
-              size: 40,
-            ),
-          ),
+          ],
         ),
       ),
     );
@@ -639,10 +712,69 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   void _toggleMeasurement() {
     setState(() => _isMeasuring = !_isMeasuring);
 
+    if (_isMeasuring) {
+      // 計測開始
+      if (_isAutoMode) {
+        _startAutoMeasurement();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isAutoMode
+              ? '自動計測を開始しました（${_settingsService.measurementInterval}秒間隔）'
+              : '計測を開始しました（地図タップでポイント追加）'),
+          backgroundColor: AppColors.statusSafe,
+        ),
+      );
+    } else {
+      // 計測停止
+      _stopAutoMeasurement();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('計測を停止しました'),
+          backgroundColor: AppColors.textSecondary,
+        ),
+      );
+    }
+  }
+
+  /// 自動計測を開始
+  void _startAutoMeasurement() {
+    _autoMeasurementTimer?.cancel();
+    final intervalMs =
+        (_settingsService.measurementInterval * 1000).round();
+    _autoMeasurementTimer = Timer.periodic(
+      Duration(milliseconds: intervalMs),
+      (_) => _addAutoMeasurementPoint(),
+    );
+  }
+
+  /// 自動計測を停止
+  void _stopAutoMeasurement() {
+    _autoMeasurementTimer?.cancel();
+    _autoMeasurementTimer = null;
+  }
+
+  /// 自動計測でポイントを追加
+  Future<void> _addAutoMeasurementPoint() async {
+    if (!_isMeasuring || !_isAutoMode) return;
+    await _addMeasurementPoint(_currentPosition);
+  }
+
+  /// 自動/手動モードを切り替え
+  void _toggleAutoMode() {
+    setState(() => _isAutoMode = !_isAutoMode);
+
+    if (_isMeasuring) {
+      if (_isAutoMode) {
+        _startAutoMeasurement();
+      } else {
+        _stopAutoMeasurement();
+      }
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(_isMeasuring ? '計測を開始しました' : '計測を停止しました'),
-        backgroundColor: _isMeasuring ? AppColors.statusSafe : AppColors.textSecondary,
+        content: Text(_isAutoMode ? '自動計測モードに切り替えました' : '手動計測モードに切り替えました'),
       ),
     );
   }

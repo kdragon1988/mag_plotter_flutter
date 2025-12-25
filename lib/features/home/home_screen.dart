@@ -12,6 +12,7 @@ import '../../data/repositories/measurement_point_repository.dart';
 import '../mission/mission_card.dart';
 import '../mission/mission_edit_dialog.dart';
 import '../measurement/measurement_screen.dart';
+import '../settings/settings_screen.dart';
 
 /// ホーム画面（ミッション一覧）
 ///
@@ -388,9 +389,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 設定画面を開く
   void _openSettings() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('設定画面は開発中です'),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const SettingsScreen(),
       ),
     );
   }

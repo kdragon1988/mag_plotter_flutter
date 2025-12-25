@@ -15,10 +15,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
 import 'features/splash/splash_screen.dart';
+import 'services/settings_service.dart';
 
 /// アプリケーションのエントリーポイント
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 設定サービスを初期化
+  await SettingsService().initialize();
 
   // システムUIの設定（ステータスバー透明化）
   SystemChrome.setSystemUIOverlayStyle(
