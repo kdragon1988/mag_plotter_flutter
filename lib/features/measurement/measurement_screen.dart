@@ -4,12 +4,15 @@
 /// 地図上にヒートマップを表示し、リアルタイムで磁場値を計測
 library;
 
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
+import '../../services/magnetometer_service.dart';
+import '../../services/location_service.dart';
 
 /// 計測画面
 ///
@@ -39,6 +42,18 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   /// 地図コントローラー
   final MapController _mapController = MapController();
 
+  /// 磁気センサーサービス
+  final MagnetometerService _magnetometerService = MagnetometerService();
+
+  /// 位置情報サービス
+  final LocationService _locationService = LocationService();
+
+  /// 磁気センサーのサブスクリプション
+  StreamSubscription<MagnetometerData>? _magSubscription;
+
+  /// 位置情報のサブスクリプション
+  StreamSubscription<LocationData>? _locationSubscription;
+
   /// 現在位置
   LatLng _currentPosition = const LatLng(
     AppConstants.defaultLatitude,
@@ -51,21 +66,82 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   /// 現在のノイズ値 [μT]
   double _noise = 0.0;
 
+  /// 現在のステータス
+  MagStatus _status = MagStatus.unknown;
+
   /// 計測ポイントリスト
   final List<_MeasurementPoint> _measurementPoints = [];
 
   /// 計測中かどうか
   bool _isMeasuring = false;
 
+  /// センサー初期化済みか
+  bool _sensorsInitialized = false;
+
   @override
   void initState() {
     super.initState();
-    // TODO: 位置情報サービスの初期化
-    // TODO: 磁気センサーの初期化
+    _initializeServices();
+  }
+
+  /// サービスの初期化
+  Future<void> _initializeServices() async {
+    // 位置情報サービスの初期化
+    final locationAvailable = await _locationService.initialize();
+    if (locationAvailable) {
+      // 現在位置を取得
+      final location = await _locationService.getCurrentLocation();
+      if (location != null && mounted) {
+        setState(() {
+          _currentPosition = location.latLng;
+        });
+        _mapController.move(_currentPosition, AppConstants.defaultZoom);
+      }
+
+      // 位置追跡を開始
+      await _locationService.startTracking();
+      _locationSubscription = _locationService.locationStream.listen((data) {
+        if (mounted) {
+          setState(() {
+            _currentPosition = data.latLng;
+          });
+        }
+      });
+    }
+
+    // 磁気センサーの初期化
+    final magAvailable = await _magnetometerService.initialize();
+    if (magAvailable) {
+      _magnetometerService.startListening();
+      _magSubscription = _magnetometerService.dataStream.listen((data) {
+        if (mounted) {
+          setState(() {
+            _magField = data.magnitude;
+            _noise = data.noise;
+            _status = data.status;
+          });
+
+          // 計測中なら自動でポイントを追加
+          if (_isMeasuring) {
+            _addMeasurementPoint(_currentPosition, data.magnitude, data.noise);
+          }
+        }
+      });
+    }
+
+    if (mounted) {
+      setState(() {
+        _sensorsInitialized = true;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _magSubscription?.cancel();
+    _locationSubscription?.cancel();
+    _magnetometerService.dispose();
+    _locationService.dispose();
     _mapController.dispose();
     super.dispose();
   }
