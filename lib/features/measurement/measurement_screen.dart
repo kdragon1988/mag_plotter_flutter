@@ -34,6 +34,7 @@ import '../drawing/drawing_toolbar.dart';
 import '../drawing/drawing_layer.dart';
 import '../drawing/shape_name_dialog.dart';
 import 'widgets/measurement_marker.dart';
+import 'widgets/compass_widget.dart';
 
 // ColorExtension用
 export '../../data/models/drawing_shape.dart' show ColorExtension;
@@ -86,6 +87,8 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   );
   double _magField = 46.0;
   double _noise = 0.0;
+  double _heading = 0.0;
+  double _mapRotation = 0.0;
   MagStatus _status = MagStatus.unknown;
   List<MeasurementPoint> _measurementPoints = [];
   List<DrawingShape> _drawingShapes = [];
@@ -182,6 +185,13 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
 
   /// マップ位置変更時のコールバック（デバウンス処理）
   void _onMapPositionChanged(MapCamera camera, bool hasGesture) {
+    // マップの回転を追跡（コンパス表示用）
+    if (_mapRotation != camera.rotation) {
+      setState(() {
+        _mapRotation = camera.rotation;
+      });
+    }
+
     // 警戒区域レイヤーが表示中の場合のみ更新
     final hasVisibleLayers = _restrictedAreaLayers.any((l) => l.isVisible);
     if (!hasVisibleLayers) return;
@@ -256,6 +266,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           setState(() {
             _magField = data.magnitude;
             _noise = data.noise;
+            _heading = data.heading;
             _status = data.status;
           });
         }
@@ -312,6 +323,9 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
               ),
             ),
 
+          // コンパス表示（右上）
+          _buildCompassDisplay(),
+
           // 計測ボタン
           if (!_showDrawingToolbar) _buildMeasureButton(),
 
@@ -329,6 +343,66 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
         ],
       ),
     );
+  }
+
+  /// コンパス表示
+  Widget _buildCompassDisplay() {
+    return Positioned(
+      top: 0,
+      right: 12,
+      child: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 8),
+            // コンパスウィジェット
+            CompassWidget(
+              heading: _heading,
+              mapRotation: _mapRotation,
+              size: 52,
+              onTap: () {
+                // タップで北を上にリセット
+                _mapController.rotate(0);
+                setState(() {
+                  _mapRotation = 0;
+                });
+              },
+            ),
+            const SizedBox(height: 6),
+            // 方位テキスト表示
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.backgroundCard.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                '${_heading.toStringAsFixed(0)}° ${_getDirectionName(_heading)}',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 方位の方角名を取得（8方位）
+  String _getDirectionName(double heading) {
+    if (heading >= 337.5 || heading < 22.5) return 'N';
+    if (heading >= 22.5 && heading < 67.5) return 'NE';
+    if (heading >= 67.5 && heading < 112.5) return 'E';
+    if (heading >= 112.5 && heading < 157.5) return 'SE';
+    if (heading >= 157.5 && heading < 202.5) return 'S';
+    if (heading >= 202.5 && heading < 247.5) return 'SW';
+    if (heading >= 247.5 && heading < 292.5) return 'W';
+    if (heading >= 292.5 && heading < 337.5) return 'NW';
+    return 'N';
   }
 
   /// 右側ボタン群
