@@ -411,6 +411,27 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 検索ボタン
+          _buildSideButton(
+            icon: Icons.search,
+            isActive: false,
+            onTap: _showSearchDialog,
+          ),
+          const SizedBox(height: 8),
+          // 現在位置に移動ボタン
+          _buildSideButton(
+            icon: Icons.my_location,
+            isActive: false,
+            onTap: _moveToCurrentLocation,
+          ),
+          const SizedBox(height: 8),
+          // 作図ボタン
+          _buildSideButton(
+            icon: Icons.draw,
+            isActive: _showDrawingToolbar,
+            onTap: () => setState(() => _showDrawingToolbar = !_showDrawingToolbar),
+          ),
+          const SizedBox(height: 8),
           // MAG計測パネルボタン
           _buildSideButton(
             icon: Icons.sensors,
@@ -959,10 +980,13 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                   color: AppColors.textSecondary,
                 ),
               ),
+              Spacer(),
+              // ドラッグヒント
+              Icon(Icons.drag_indicator, size: 12, color: AppColors.textHint),
             ],
           ),
         ),
-        // 図形リスト
+        // 図形リスト（ドラッグ&ドロップ対応）
         if (_drawingShapes.isEmpty)
           const Padding(
             padding: EdgeInsets.all(12),
@@ -975,12 +999,46 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
             ),
           )
         else
-          ...List.generate(_drawingShapes.length, (index) {
-            final shape = _drawingShapes[index];
-            return _buildLayerItem(shape, index);
-          }),
+          ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            itemCount: _drawingShapes.length,
+            onReorder: _onReorderShapes,
+            proxyDecorator: (child, index, animation) {
+              return AnimatedBuilder(
+                animation: animation,
+                builder: (context, child) {
+                  final scale = Tween<double>(begin: 1.0, end: 1.05).animate(animation);
+                  return Transform.scale(
+                    scale: scale.value,
+                    child: Material(
+                      elevation: 8,
+                      color: AppColors.backgroundCard,
+                      borderRadius: BorderRadius.circular(4),
+                      child: child,
+                    ),
+                  );
+                },
+                child: child,
+              );
+            },
+            itemBuilder: (context, index) {
+              final shape = _drawingShapes[index];
+              return _buildLayerItem(shape, index, key: ValueKey(shape.id));
+            },
+          ),
       ],
     );
+  }
+
+  /// 図形の重ね順を変更
+  void _onReorderShapes(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final shape = _drawingShapes.removeAt(oldIndex);
+      _drawingShapes.insert(newIndex, shape);
+    });
   }
 
   /// 計測レイヤーパネル
@@ -1350,8 +1408,9 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   }
 
   /// レイヤーアイテム
-  Widget _buildLayerItem(DrawingShape shape, int index) {
+  Widget _buildLayerItem(DrawingShape shape, int index, {Key? key}) {
     return GestureDetector(
+      key: key,
       onDoubleTap: () {
         setState(() => _showLayerPanel = false); // パネルを閉じる
         _showShapeActions(shape); // 編集パネルを表示
@@ -1363,6 +1422,18 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
         ),
         child: Row(
           children: [
+            // ドラッグハンドル（長押しでドラッグ）
+            ReorderableDragStartListener(
+              index: index,
+              child: const Padding(
+                padding: EdgeInsets.only(right: 6),
+                child: Icon(
+                  Icons.drag_indicator,
+                  size: 16,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ),
             // 色インジケータ
             Container(
               width: 12,
@@ -1398,16 +1469,6 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
               onTap: () => _moveToShape(shape),
               tooltip: '移動',
             ),
-            _buildLayerActionButton(
-              icon: Icons.arrow_upward,
-              onTap: index > 0 ? () => _moveShapeUp(index) : null,
-              tooltip: '上へ',
-            ),
-            _buildLayerActionButton(
-              icon: Icons.arrow_downward,
-              onTap: index < _drawingShapes.length - 1 ? () => _moveShapeDown(index) : null,
-              tooltip: '下へ',
-          ),
             _buildLayerActionButton(
               icon: Icons.delete_outline,
               onTap: () => _deleteShape(shape),
@@ -1453,25 +1514,6 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
     }
   }
 
-  /// 図形を上に移動（重ね順）
-  void _moveShapeUp(int index) {
-    if (index > 0) {
-      setState(() {
-        final shape = _drawingShapes.removeAt(index);
-        _drawingShapes.insert(index - 1, shape);
-      });
-    }
-  }
-
-  /// 図形を下に移動（重ね順）
-  void _moveShapeDown(int index) {
-    if (index < _drawingShapes.length - 1) {
-      setState(() {
-        final shape = _drawingShapes.removeAt(index);
-        _drawingShapes.insert(index + 1, shape);
-      });
-    }
-  }
 
   /// 図形を削除
   Future<void> _deleteShape(DrawingShape shape) async {
@@ -1641,7 +1683,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
     return Positioned(
       top: 0,
       left: 0,
-      right: 0,
+      right: 80, // コンパス用のスペースを確保
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -1660,12 +1702,14 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Row(
               children: [
+                // 戻るボタン
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary, size: 20),
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 ),
+                // タイトル・ステータス
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1675,11 +1719,13 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                         widget.missionName.toUpperCase(),
                         style: const TextStyle(
                           fontFamily: 'monospace',
-                          fontSize: 14,
+                          fontSize: 12,
                           fontWeight: FontWeight.bold,
                           color: AppColors.accentPrimary,
-                          letterSpacing: 1,
+                          letterSpacing: 0.5,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       Text(
                         'POINTS: ${_measurementPoints.length}',
@@ -1692,57 +1738,8 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                     ],
                   ),
                 ),
+                // ステータスインジケーター
                 _buildStatusIndicator(),
-                // 計測レイヤー管理ボタン
-                IconButton(
-                  onPressed: () => setState(() {
-                    _showMeasurementLayerPanel = !_showMeasurementLayerPanel;
-                    if (_showMeasurementLayerPanel) _showLayerPanel = false;
-                  }),
-                  tooltip: '計測レイヤー',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  icon: Icon(
-                    Icons.scatter_plot,
-                    color: _showMeasurementLayerPanel
-                        ? AppColors.accentPrimary
-                        : AppColors.textSecondary,
-                  ),
-                ),
-                // 現在位置に移動ボタン
-                IconButton(
-                  onPressed: _moveToCurrentLocation,
-                  tooltip: '現在位置',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  icon: const Icon(
-                    Icons.my_location,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                ),
-                // 検索ボタン
-                IconButton(
-                  onPressed: _showSearchDialog,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  icon: const Icon(
-                    Icons.search,
-                    color: AppColors.textSecondary,
-                    size: 20,
-                  ),
-                ),
-                // 描画ボタン
-                IconButton(
-                  onPressed: () => setState(() => _showDrawingToolbar = !_showDrawingToolbar),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  icon: Icon(
-                    Icons.draw,
-                    color: _showDrawingToolbar ? AppColors.accentPrimary : AppColors.textSecondary,
-                    size: 20,
-                  ),
-                ),
               ],
             ),
           ),
