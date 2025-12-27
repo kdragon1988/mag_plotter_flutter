@@ -25,6 +25,9 @@ import '../../data/repositories/drawing_shape_repository.dart';
 import '../../services/magnetometer_service.dart';
 import '../../services/location_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/geojson_service.dart';
+import '../../services/airport_tile_service.dart';
+import '../../data/models/restricted_area_layer.dart';
 import '../drawing/drawing_mode.dart';
 import '../drawing/drawing_controller.dart';
 import '../drawing/drawing_toolbar.dart';
@@ -59,6 +62,8 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
 
   // サービス
   final SettingsService _settingsService = SettingsService();
+  final GeoJsonService _geoJsonService = GeoJsonService();
+  final AirportTileService _airportTileService = AirportTileService();
 
   // リポジトリ
   final MissionRepository _missionRepo = MissionRepository();
@@ -93,13 +98,99 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   bool _showEdgeLabels = true;
   bool _showLayerPanel = false;
   bool _showMeasurementLayerPanel = false;
+  bool _showRestrictedAreaPanel = false;
   MeasurementPoint? _selectedPoint;
+  
+  // 警戒区域レイヤー
+  List<RestrictedAreaLayer> _restrictedAreaLayers = [];
+  Map<RestrictedAreaType, List<List<LatLng>>> _restrictedAreaPolygons = {};
+  Timer? _viewportUpdateTimer;
 
   @override
   void initState() {
     super.initState();
     _loadMission();
     _initializeServices();
+    _initializeRestrictedAreaLayers();
+  }
+
+  /// 警戒区域レイヤーを初期化
+  Future<void> _initializeRestrictedAreaLayers() async {
+    _restrictedAreaLayers = RestrictedAreaLayer.getDefaultLayers();
+    // 保存された設定を復元（将来的にSharedPreferencesから読み込む）
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// 警戒区域のポリゴンデータを読み込む
+  Future<void> _loadRestrictedAreaPolygons(RestrictedAreaLayer layer) async {
+    // GeoJSONファイルがある場合は読み込む
+    if (layer.geoJsonFileName.isNotEmpty) {
+      if (!_geoJsonService.isLoaded(layer.geoJsonFileName)) {
+        debugPrint('警戒区域: ${layer.name} のGeoJSONを読み込み中...');
+        await _geoJsonService.loadGeoJson(layer.geoJsonFileName);
+        debugPrint('警戒区域: ${layer.name} 読み込み完了 (${_geoJsonService.getFeatureCount(layer.geoJsonFileName)} features)');
+      }
+    }
+    
+    // ビューポートに基づいてポリゴンを更新
+    _updateRestrictedAreaForViewport();
+  }
+
+  // 空港エリアタイルサービスは現在非公開のため無効化
+  // 将来的に地理院地図のkokuareaレイヤーが公開されたら有効化
+  // Future<void> _loadAirportAreaForViewport() async { ... }
+
+  /// 現在のビューポートに基づいて警戒区域ポリゴンを更新
+  void _updateRestrictedAreaForViewport() {
+    // 表示中のレイヤーがなければスキップ
+    final hasVisibleLayers = _restrictedAreaLayers.any((l) => l.isVisible);
+    if (!hasVisibleLayers) return;
+
+    final bounds = _mapController.camera.visibleBounds;
+    final viewport = BoundingBox(
+      minLat: bounds.south,
+      maxLat: bounds.north,
+      minLng: bounds.west,
+      maxLng: bounds.east,
+    );
+
+    bool hasChanges = false;
+    for (final layer in _restrictedAreaLayers) {
+      if (!layer.isVisible) continue;
+      
+      // GeoJSONファイルがある場合は読み込む
+      if (layer.geoJsonFileName.isNotEmpty) {
+        final visiblePolygons = _geoJsonService.getVisiblePolygons(
+          layer.geoJsonFileName,
+          viewport,
+        );
+        
+        // 変更があった場合のみ更新
+        if (_restrictedAreaPolygons[layer.type]?.length != visiblePolygons.length) {
+          _restrictedAreaPolygons[layer.type] = visiblePolygons;
+          hasChanges = true;
+        }
+      }
+    }
+    
+    if (hasChanges && mounted) {
+      setState(() {});
+    }
+  }
+
+  /// マップ位置変更時のコールバック（デバウンス処理）
+  void _onMapPositionChanged(MapCamera camera, bool hasGesture) {
+    // 警戒区域レイヤーが表示中の場合のみ更新
+    final hasVisibleLayers = _restrictedAreaLayers.any((l) => l.isVisible);
+    if (!hasVisibleLayers) return;
+
+    // デバウンス: 300ms間隔で更新（パフォーマンス最適化）
+    _viewportUpdateTimer?.cancel();
+    _viewportUpdateTimer = Timer(const Duration(milliseconds: 300), () {
+      _updateRestrictedAreaForViewport();
+    });
   }
 
   Future<void> _loadMission() async {
@@ -177,12 +268,14 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   @override
   void dispose() {
     _autoMeasurementTimer?.cancel();
+    _viewportUpdateTimer?.cancel();
     _magSubscription?.cancel();
     _locationSubscription?.cancel();
     _magnetometerService.dispose();
     _locationService.dispose();
     _drawingController.dispose();
     _mapController.dispose();
+    _airportTileService.dispose();
     super.dispose();
   }
 
@@ -316,8 +409,8 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       right: 56,
       bottom: 150,
       child: Container(
-        width: 220,
-        constraints: const BoxConstraints(maxHeight: 300),
+        width: 260,
+        constraints: const BoxConstraints(maxHeight: 400),
         decoration: BoxDecoration(
           color: AppColors.backgroundCard.withValues(alpha: 0.95),
           borderRadius: BorderRadius.circular(8),
@@ -361,33 +454,200 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                 ],
               ),
             ),
-            // 図形リスト
-            if (_drawingShapes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  '図形がありません',
-                  style: TextStyle(
-                    color: AppColors.textHint,
-                    fontSize: 12,
-                  ),
-                ),
-              )
-            else
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.zero,
-                  itemCount: _drawingShapes.length,
-                  itemBuilder: (context, index) {
-                    final shape = _drawingShapes[index];
-                    return _buildLayerItem(shape, index);
-                  },
+            // スクロール可能なコンテンツ
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 警戒区域セクション
+                    _buildRestrictedAreaSection(),
+                    
+                    // 区切り線
+                    const Divider(color: AppColors.border, height: 1),
+                    
+                    // 描画図形セクション
+                    _buildDrawingShapesSection(),
+                  ],
                 ),
               ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  /// 警戒区域セクション
+  Widget _buildRestrictedAreaSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // セクションヘッダー
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          color: AppColors.backgroundSecondary,
+          child: const Row(
+            children: [
+              Icon(Icons.warning_amber, size: 14, color: AppColors.statusWarning),
+              SizedBox(width: 6),
+              Text(
+                '飛行警戒区域',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // レイヤーリスト
+        ...List.generate(_restrictedAreaLayers.length, (index) {
+          final layer = _restrictedAreaLayers[index];
+          return _buildRestrictedAreaLayerItem(layer, index);
+        }),
+      ],
+    );
+  }
+
+  /// 警戒区域レイヤーアイテム
+  Widget _buildRestrictedAreaLayerItem(RestrictedAreaLayer layer, int index) {
+    return GestureDetector(
+      onTap: () => _toggleRestrictedAreaLayer(layer),
+      onDoubleTap: () => _showRestrictedAreaDetail(layer),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: AppColors.border.withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            // 色インジケーター
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: layer.fillColor,
+                border: Border.all(color: layer.strokeColor, width: 1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // レイヤー名
+            Expanded(
+              child: Text(
+                layer.name,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: layer.isVisible 
+                      ? AppColors.textPrimary 
+                      : AppColors.textHint,
+                  decoration: layer.isVisible 
+                      ? null 
+                      : TextDecoration.lineThrough,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            // 表示切り替え
+            Icon(
+              layer.isVisible ? Icons.visibility : Icons.visibility_off,
+              size: 16,
+              color: layer.isVisible 
+                  ? AppColors.accentPrimary 
+                  : AppColors.textHint,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 警戒区域レイヤーの表示/非表示を切り替え
+  Future<void> _toggleRestrictedAreaLayer(RestrictedAreaLayer layer) async {
+    // 表示ONの場合、ポリゴンデータを読み込む
+    if (!layer.isVisible) {
+      await _loadRestrictedAreaPolygons(layer);
+    }
+    
+    setState(() {
+      layer.isVisible = !layer.isVisible;
+    });
+  }
+
+  /// 警戒区域の詳細を表示
+  void _showRestrictedAreaDetail(RestrictedAreaLayer layer) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => _RestrictedAreaDetailPanel(
+        layer: layer,
+        onUpdate: (updatedLayer) {
+          setState(() {
+            final index = _restrictedAreaLayers.indexWhere(
+              (l) => l.type == updatedLayer.type,
+            );
+            if (index != -1) {
+              _restrictedAreaLayers[index] = updatedLayer;
+            }
+          });
+        },
+      ),
+    );
+  }
+
+  /// 描画図形セクション
+  Widget _buildDrawingShapesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // セクションヘッダー
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          color: AppColors.backgroundSecondary,
+          child: const Row(
+            children: [
+              Icon(Icons.draw, size: 14, color: AppColors.accentPrimary),
+              SizedBox(width: 6),
+              Text(
+                '描画図形',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 図形リスト
+        if (_drawingShapes.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text(
+              '図形がありません',
+              style: TextStyle(
+                color: AppColors.textHint,
+                fontSize: 11,
+              ),
+            ),
+          )
+        else
+          ...List.generate(_drawingShapes.length, (index) {
+            final shape = _drawingShapes[index];
+            return _buildLayerItem(shape, index);
+          }),
+      ],
     );
   }
 
@@ -945,6 +1205,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
         maxZoom: AppConstants.maxZoom,
         backgroundColor: AppColors.backgroundPrimary,
         onTap: _onMapTap,
+        onPositionChanged: _onMapPositionChanged,
       ),
       children: [
         // タイルレイヤー（標準 or 衛星）
@@ -961,6 +1222,9 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
             userAgentPackageName: 'com.visionoid.magplotter',
             tileBuilder: _darkTileBuilder,
           ),
+
+        // 警戒区域ポリゴンレイヤー
+        ..._buildRestrictedAreaLayers(),
 
         // 保存済み図形レイヤー
         SavedShapesLayer(
@@ -1451,6 +1715,35 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
 
   void _selectPoint(MeasurementPoint point) {
     setState(() => _selectedPoint = point);
+  }
+
+  /// 警戒区域ポリゴンレイヤーを構築
+  List<Widget> _buildRestrictedAreaLayers() {
+    final layers = <Widget>[];
+
+    for (final layer in _restrictedAreaLayers) {
+      if (!layer.isVisible) continue;
+      
+      final polygons = _restrictedAreaPolygons[layer.type];
+      if (polygons == null || polygons.isEmpty) continue;
+
+      // ポリゴンレイヤー
+      layers.add(
+        PolygonLayer(
+          polygons: polygons.map((points) {
+            return Polygon(
+              points: points,
+              color: layer.fillColor,
+              borderColor: layer.showStroke ? layer.strokeColor : Colors.transparent,
+              borderStrokeWidth: layer.showStroke ? layer.strokeWidth : 0,
+              isFilled: true,
+            );
+          }).toList(),
+        ),
+      );
+    }
+
+    return layers;
   }
 
   /// 計測ポイントレイヤーを構築（レイヤーごとに分けて表示）
@@ -2906,6 +3199,410 @@ class _MeasurementLayerEditPanelState extends State<_MeasurementLayerEditPanel> 
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 警戒区域詳細パネル
+class _RestrictedAreaDetailPanel extends StatefulWidget {
+  final RestrictedAreaLayer layer;
+  final Function(RestrictedAreaLayer) onUpdate;
+
+  const _RestrictedAreaDetailPanel({
+    required this.layer,
+    required this.onUpdate,
+  });
+
+  @override
+  State<_RestrictedAreaDetailPanel> createState() => _RestrictedAreaDetailPanelState();
+}
+
+class _RestrictedAreaDetailPanelState extends State<_RestrictedAreaDetailPanel> {
+  late RestrictedAreaLayer _layer;
+
+  @override
+  void initState() {
+    super.initState();
+    _layer = widget.layer;
+  }
+
+  void _updateLayer(RestrictedAreaLayer updatedLayer) {
+    setState(() {
+      _layer = updatedLayer;
+    });
+    widget.onUpdate(updatedLayer);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: AppColors.backgroundCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ヘッダー
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: AppColors.border),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: _layer.fillColor,
+                      border: Border.all(color: _layer.strokeColor, width: 2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _layer.name,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                ],
+              ),
+            ),
+
+            // 説明
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '概要',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accentPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _layer.description,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const Divider(color: AppColors.border, height: 1),
+
+            // 法的根拠
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '法的根拠',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accentPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _layer.legalBasis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const Divider(color: AppColors.border, height: 1),
+
+            // データ情報
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'データ情報',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accentPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInfoRow('データ年月', _layer.dataDate),
+                  const SizedBox(height: 4),
+                  _buildInfoRow('参照URL', _layer.referenceUrl),
+                ],
+              ),
+            ),
+
+            const Divider(color: AppColors.border, height: 1),
+
+            // 表示設定
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '表示設定',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accentPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // 塗りつぶし色
+                  _buildColorSelector(
+                    label: '塗りつぶし色',
+                    currentColor: Color(int.parse(_layer.fillColorHex, radix: 16)),
+                    onColorChanged: (color) {
+                      _updateLayer(_layer.copyWith(
+                        fillColorHex: color.toHex(),
+                      ));
+                    },
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // 透明度スライダー
+                  Row(
+                    children: [
+                      const Text(
+                        '透明度',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _layer.fillOpacity,
+                          min: 0.0,
+                          max: 1.0,
+                          divisions: 10,
+                          activeColor: AppColors.accentPrimary,
+                          inactiveColor: AppColors.textHint,
+                          onChanged: (value) {
+                            _updateLayer(_layer.copyWith(fillOpacity: value));
+                          },
+                        ),
+                      ),
+                      Text(
+                        '${(_layer.fillOpacity * 100).toInt()}%',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  // 境界線表示
+                  Row(
+                    children: [
+                      const Text(
+                        '境界線を表示',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const Spacer(),
+                      Switch(
+                        value: _layer.showStroke,
+                        activeColor: AppColors.accentPrimary,
+                        onChanged: (value) {
+                          _updateLayer(_layer.copyWith(showStroke: value));
+                        },
+                      ),
+                    ],
+                  ),
+                  
+                  if (_layer.showStroke) ...[
+                    const SizedBox(height: 8),
+                    
+                    // 境界線色
+                    _buildColorSelector(
+                      label: '境界線色',
+                      currentColor: Color(int.parse(_layer.strokeColorHex, radix: 16)),
+                      onColorChanged: (color) {
+                        _updateLayer(_layer.copyWith(
+                          strokeColorHex: color.toHex(),
+                        ));
+                      },
+                    ),
+                    
+                    const SizedBox(height: 12),
+                    
+                    // 境界線の太さ
+                    Row(
+                      children: [
+                        const Text(
+                          '境界線の太さ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: _layer.strokeWidth,
+                            min: 0.5,
+                            max: 5.0,
+                            divisions: 9,
+                            activeColor: AppColors.accentPrimary,
+                            inactiveColor: AppColors.textHint,
+                            onChanged: (value) {
+                              _updateLayer(_layer.copyWith(strokeWidth: value));
+                            },
+                          ),
+                        ),
+                        Text(
+                          '${_layer.strokeWidth.toStringAsFixed(1)}px',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 11,
+            color: AppColors.textHint,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildColorSelector({
+    required String label,
+    required Color currentColor,
+    required Function(Color) onColorChanged,
+  }) {
+    final colors = [
+      const Color(0xFFFF6B6B), // 赤
+      const Color(0xFFFF8C00), // オレンジ
+      const Color(0xFFFFD700), // 黄色
+      const Color(0xFF6B8EFF), // 青
+      const Color(0xFF00CED1), // シアン
+      const Color(0xFF32CD32), // 緑
+      const Color(0xFFDA70D6), // ピンク
+      const Color(0xFF9370DB), // 紫
+    ];
+
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Wrap(
+            spacing: 8,
+            children: colors.map((color) {
+              final isSelected = currentColor.value == color.value;
+              return GestureDetector(
+                onTap: () => onColorChanged(color),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? Colors.white : Colors.transparent,
+                      width: 2,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.5),
+                              blurRadius: 4,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
     );
   }
 }
