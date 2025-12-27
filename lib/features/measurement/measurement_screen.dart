@@ -635,9 +635,11 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
 
   /// MAG計測パネル
   Widget _buildMagPanel() {
-    final statusColor = _noise < (_mission?.safeThreshold ?? AppConstants.defaultSafeThreshold)
+    final safeThreshold = _mission?.safeThreshold ?? AppConstants.defaultSafeThreshold;
+    final dangerThreshold = _mission?.dangerThreshold ?? AppConstants.defaultDangerThreshold;
+    final statusColor = _noise < safeThreshold
         ? AppColors.statusSafe
-        : _noise < (_mission?.dangerThreshold ?? AppConstants.defaultDangerThreshold)
+        : _noise < dangerThreshold
             ? AppColors.statusWarning
             : AppColors.statusDanger;
 
@@ -645,7 +647,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       right: 56,
       bottom: 100,
       child: Container(
-        width: 180,
+        width: 200,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: AppColors.backgroundCard.withValues(alpha: 0.95),
@@ -681,6 +683,14 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            
+            // レベルメーター（オーディオゲージ風）
+            _buildMagLevelMeter(
+              noise: _noise,
+              safeThreshold: safeThreshold,
+              dangerThreshold: dangerThreshold,
             ),
             const SizedBox(height: 10),
             
@@ -750,6 +760,68 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                     ),
                   ],
                 ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            
+            // 基準値表示とリセットボタン
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'REF',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 8,
+                            color: AppColors.textHint,
+                          ),
+                        ),
+                        Text(
+                          '${_magnetometerService.referenceMag.toStringAsFixed(1)} μT',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _calibrateMagnetometer,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _magnetometerService.isCalibrating
+                            ? AppColors.statusWarning
+                            : AppColors.accentSecondary,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _magnetometerService.isCalibrating ? 'CAL...' : 'RESET',
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -849,6 +921,124 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  /// MAGレベルメーター（オーディオゲージ風）
+  Widget _buildMagLevelMeter({
+    required double noise,
+    required double safeThreshold,
+    required double dangerThreshold,
+  }) {
+    // メーターの最大値（danger閾値の2倍）
+    final maxValue = dangerThreshold * 2;
+    // 現在値の割合（0.0〜1.0）
+    final ratio = (noise / maxValue).clamp(0.0, 1.0);
+    
+    // 16セグメントのレベルメーター
+    const segmentCount = 16;
+    final activeSegments = (ratio * segmentCount).ceil();
+    
+    // 閾値の位置を計算
+    final safeSegmentEnd = (safeThreshold / maxValue * segmentCount).floor();
+    final warningSegmentEnd = (dangerThreshold / maxValue * segmentCount).floor();
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.backgroundPrimary,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        children: [
+          // メーターバー
+          Row(
+            children: List.generate(segmentCount, (index) {
+              final isActive = index < activeSegments;
+              Color segmentColor;
+              
+              if (index < safeSegmentEnd) {
+                // 安全域（緑）
+                segmentColor = isActive
+                    ? AppColors.statusSafe
+                    : AppColors.statusSafe.withValues(alpha: 0.15);
+              } else if (index < warningSegmentEnd) {
+                // 警告域（黄）
+                segmentColor = isActive
+                    ? AppColors.statusWarning
+                    : AppColors.statusWarning.withValues(alpha: 0.15);
+              } else {
+                // 危険域（赤）
+                segmentColor = isActive
+                    ? AppColors.statusDanger
+                    : AppColors.statusDanger.withValues(alpha: 0.15);
+              }
+              
+              return Expanded(
+                child: Container(
+                  height: 14,
+                  margin: EdgeInsets.only(
+                    right: index < segmentCount - 1 ? 2 : 0,
+                  ),
+                  decoration: BoxDecoration(
+                    color: segmentColor,
+                    borderRadius: BorderRadius.circular(2),
+                    boxShadow: isActive
+                        ? [
+                            BoxShadow(
+                              color: segmentColor.withValues(alpha: 0.6),
+                              blurRadius: 4,
+                              spreadRadius: 0,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 4),
+          // スケール表示
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '0',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 7,
+                  color: AppColors.textHint,
+                ),
+              ),
+              Text(
+                '${safeThreshold.toInt()}',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 7,
+                  color: AppColors.statusSafe.withValues(alpha: 0.8),
+                ),
+              ),
+              Text(
+                '${dangerThreshold.toInt()}',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 7,
+                  color: AppColors.statusWarning.withValues(alpha: 0.8),
+                ),
+              ),
+              Text(
+                '${maxValue.toInt()}μT',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 7,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -2278,6 +2468,55 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           backgroundColor: AppColors.textSecondary,
         ),
       );
+    }
+  }
+
+  /// 磁場センサーをキャリブレーション
+  ///
+  /// 現在の磁場値の平均を取って基準値として設定
+  Future<void> _calibrateMagnetometer() async {
+    // すでにキャリブレーション中なら何もしない
+    if (_magnetometerService.isCalibrating) {
+      return;
+    }
+
+    // センサーがリッスンしていなければ開始
+    if (!_magnetometerService.isListening) {
+      _magnetometerService.startListening();
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('キャリブレーション中... 端末を動かさないでください'),
+        backgroundColor: AppColors.statusWarning,
+        duration: Duration(seconds: 3),
+      ),
+    );
+
+    setState(() {}); // UIを更新（CAL...表示）
+
+    try {
+      final newReference = await _magnetometerService.startCalibration();
+      
+      if (mounted) {
+        setState(() {}); // UIを更新（新しい基準値を表示）
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('キャリブレーション完了！基準値: ${newReference.toStringAsFixed(1)} μT'),
+            backgroundColor: AppColors.statusSafe,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('キャリブレーションエラー: $e'),
+            backgroundColor: AppColors.statusDanger,
+          ),
+        );
+      }
     }
   }
 

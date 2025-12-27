@@ -148,8 +148,8 @@ class LocationService {
 
   /// 位置情報の追跡を開始
   ///
-  /// [distanceFilter] 位置更新の最小距離 [m]
-  Future<bool> startTracking({double distanceFilter = 5}) async {
+  /// [distanceFilter] 位置更新の最小距離 [m]（デフォルト: 1m）
+  Future<bool> startTracking({double distanceFilter = 1}) async {
     if (_isTracking) return true;
 
     if (!_isAvailable) {
@@ -159,9 +159,12 @@ class LocationService {
 
     try {
       _subscription = Geolocator.getPositionStream(
-        locationSettings: LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: distanceFilter.toInt(),
+        locationSettings: AppleSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 1,
+          activityType: ActivityType.fitness,
+          pauseLocationUpdatesAutomatically: false,
+          showBackgroundLocationIndicator: true,
         ),
       ).listen(
         _onPositionUpdate,

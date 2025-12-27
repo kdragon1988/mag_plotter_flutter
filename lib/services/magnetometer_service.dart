@@ -129,6 +129,15 @@ class MagnetometerService {
   /// 計測中かどうか
   bool _isListening = false;
 
+  /// キャリブレーション用のサンプルリスト
+  final List<double> _calibrationSamples = [];
+
+  /// キャリブレーション中かどうか
+  bool _isCalibrating = false;
+
+  /// キャリブレーションに必要なサンプル数
+  static const int _calibrationSampleCount = 20;
+
   /// データストリーム
   Stream<MagnetometerData> get dataStream => _dataController.stream;
 
@@ -140,6 +149,9 @@ class MagnetometerService {
 
   /// 計測中か
   bool get isListening => _isListening;
+
+  /// キャリブレーション中か
+  bool get isCalibrating => _isCalibrating;
 
   /// 基準磁場値
   double get referenceMag => _referenceMag;
@@ -206,11 +218,65 @@ class MagnetometerService {
     if (dangerThreshold != null) _dangerThreshold = dangerThreshold;
   }
 
+  /// キャリブレーションを開始
+  ///
+  /// 20サンプルの平均を取って基準値として設定
+  /// 完了時に新しい基準値を返すFutureを返す
+  Future<double> startCalibration() async {
+    if (!_isListening) {
+      throw Exception('キャリブレーション前にセンサーを開始してください');
+    }
+
+    _isCalibrating = true;
+    _calibrationSamples.clear();
+
+    // サンプルが集まるまで待機
+    final completer = Completer<double>();
+
+    late StreamSubscription<MagnetometerData> subscription;
+    subscription = dataStream.listen((data) {
+      if (_isCalibrating) {
+        _calibrationSamples.add(data.magnitude);
+
+        if (_calibrationSamples.length >= _calibrationSampleCount) {
+          // 平均を計算
+          final average = _calibrationSamples.reduce((a, b) => a + b) /
+              _calibrationSamples.length;
+
+          // 基準値を更新
+          _referenceMag = average;
+          _isCalibrating = false;
+          _calibrationSamples.clear();
+
+          subscription.cancel();
+          completer.complete(average);
+        }
+      }
+    });
+
+    return completer.future;
+  }
+
+  /// キャリブレーションをキャンセル
+  void cancelCalibration() {
+    _isCalibrating = false;
+    _calibrationSamples.clear();
+  }
+
+  /// 現在の磁場値を即座に基準値として設定
+  void setCurrentAsReference() {
+    if (_latestData.magnitude > 0) {
+      _referenceMag = _latestData.magnitude;
+    }
+  }
+
   /// センサーの購読を開始
-  void startListening() {
+  ///
+  /// [samplingPeriod] サンプリング間隔（デフォルト: 20ms = 50Hz）
+  void startListening({Duration samplingPeriod = const Duration(milliseconds: 20)}) {
     if (_isListening) return;
 
-    _subscription = magnetometerEventStream().listen(
+    _subscription = magnetometerEventStream(samplingPeriod: samplingPeriod).listen(
       _onMagnetometerEvent,
       onError: _onError,
     );
@@ -227,6 +293,10 @@ class MagnetometerService {
 
   /// センサーイベントの処理
   void _onMagnetometerEvent(MagnetometerEvent event) {
+    // iOSのsensors_plusはマイクロテスラ(μT)を返すが、
+    // 一部のデバイスでは異なるスケールの可能性がある
+    // デバッグ: print('MAG RAW: x=${event.x}, y=${event.y}, z=${event.z}');
+    
     // 総磁場強度を計算: √(x² + y² + z²)
     final magnitude = math.sqrt(
       event.x * event.x + event.y * event.y + event.z * event.z,
