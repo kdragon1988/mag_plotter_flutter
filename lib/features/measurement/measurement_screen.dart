@@ -90,6 +90,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   double _heading = 0.0;
   double _mapRotation = 0.0;
   MagStatus _status = MagStatus.unknown;
+  bool _isHeadingUpMode = false; // true: 自分の向きに追従, false: 北固定
   List<MeasurementPoint> _measurementPoints = [];
   List<DrawingShape> _drawingShapes = [];
   List<MeasurementLayer> _measurementLayers = [];
@@ -271,6 +272,11 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
             _heading = data.heading;
             _status = data.status;
           });
+          
+          // ヘディングアップモード時は地図を回転
+          if (_isHeadingUpMode && _mapController.camera.rotation != -data.heading) {
+            _mapController.rotate(-data.heading);
+          }
         }
       });
     }
@@ -354,35 +360,109 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           children: [
             const SizedBox(height: 8),
             // コンパスウィジェット
-            CompassWidget(
-              heading: _heading,
-              mapRotation: _mapRotation,
-              size: 52,
+            GestureDetector(
               onTap: () {
-                // タップで北を上にリセット
-                _mapController.rotate(0);
+                // タップでモード切り替え
                 setState(() {
+                  _isHeadingUpMode = !_isHeadingUpMode;
+                });
+                if (_isHeadingUpMode) {
+                  // ヘディングアップモード開始
+                  _mapController.rotate(-_heading);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('ヘディングアップモード（進行方向が上）'),
+                      duration: Duration(seconds: 1),
+                      backgroundColor: AppColors.accentPrimary,
+                    ),
+                  );
+                } else {
+                  // 北固定モード
+                  _mapController.rotate(0);
+                  setState(() {
+                    _mapRotation = 0;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('ノースアップモード（北が上）'),
+                      duration: Duration(seconds: 1),
+                      backgroundColor: AppColors.textSecondary,
+                    ),
+                  );
+                }
+              },
+              onLongPress: () {
+                // 長押しで北リセット（ヘディングアップモードも解除）
+                setState(() {
+                  _isHeadingUpMode = false;
                   _mapRotation = 0;
                 });
+                _mapController.rotate(0);
               },
+              child: Stack(
+                children: [
+                  CompassWidget(
+                    heading: _heading,
+                    mapRotation: _mapRotation,
+                    size: 52,
+                  ),
+                  // ヘディングアップモードインジケーター
+                  if (_isHeadingUpMode)
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: AppColors.accentPrimary,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: const Icon(
+                          Icons.navigation,
+                          size: 8,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 6),
-            // 方位テキスト表示
+            // 方位テキスト表示（モード表示付き）
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: AppColors.backgroundCard.withValues(alpha: 0.9),
+                color: _isHeadingUpMode
+                    ? AppColors.accentPrimary.withValues(alpha: 0.9)
+                    : AppColors.backgroundCard.withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Text(
-                '${_heading.toStringAsFixed(0)}° ${_getDirectionName(_heading)}',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+                border: Border.all(
+                  color: _isHeadingUpMode ? AppColors.accentPrimary : AppColors.border,
                 ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isHeadingUpMode) ...[
+                    const Icon(
+                      Icons.navigation,
+                      size: 10,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  Text(
+                    '${_heading.toStringAsFixed(0)}° ${_getDirectionName(_heading)}',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: _isHeadingUpMode ? Colors.white : AppColors.textPrimary,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1880,7 +1960,6 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           TileLayer(
             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'com.visionoid.magplotter',
-            tileBuilder: _darkTileBuilder,
           ),
 
         // 警戒区域ポリゴンレイヤー
@@ -1931,18 +2010,6 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
     );
   }
 
-  Widget _darkTileBuilder(BuildContext context, Widget tileWidget, TileImage tile) {
-    return ColorFiltered(
-      colorFilter: const ColorFilter.matrix(<double>[
-        0.5, 0, 0, 0, 0,
-        0, 0.5, 0, 0, 0,
-        0, 0, 0.6, 0, 0,
-        0, 0, 0, 1, 0,
-      ]),
-      child: tileWidget,
-    );
-  }
-
   Widget _buildCurrentLocationMarker() {
     return Container(
       decoration: BoxDecoration(
@@ -1969,7 +2036,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
     return Positioned(
       top: 0,
       left: 0,
-      right: 80, // コンパス用のスペースを確保
+      right: 0,
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -1985,7 +2052,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.only(left: 8, right: 80, top: 4, bottom: 4),
             child: Row(
               children: [
                 // 戻るボタン

@@ -54,7 +54,7 @@ class AppConstants {
   static const double minZoom = 3.0;
 
   /// 最大ズームレベル
-  static const double maxZoom = 19.0;
+  static const double maxZoom = 22.0;
 
   // ============================================
   // UI設定
