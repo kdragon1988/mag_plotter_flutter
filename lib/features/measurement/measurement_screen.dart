@@ -2000,8 +2000,8 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           markers: [
             Marker(
               point: _currentPosition,
-              width: 40,
-              height: 40,
+              width: 24,
+              height: 24,
               child: _buildCurrentLocationMarker(),
             ),
           ],
@@ -2015,10 +2015,10 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: AppColors.accentPrimary.withValues(alpha: 0.3),
-        border: Border.all(color: AppColors.accentPrimary, width: 3),
+        border: Border.all(color: AppColors.accentPrimary, width: 2),
       ),
       child: const Center(
-        child: Icon(Icons.my_location, color: AppColors.accentPrimary, size: 20),
+        child: Icon(Icons.my_location, color: AppColors.accentPrimary, size: 12),
       ),
     );
   }
