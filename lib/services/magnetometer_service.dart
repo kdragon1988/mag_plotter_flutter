@@ -11,7 +11,7 @@ import '../core/constants/app_constants.dart';
 
 /// 磁気センサーデータ
 ///
-/// 3軸磁場値と計算された総磁場強度・ノイズ値を保持
+/// 3軸磁場値と計算された総磁場強度・ノイズ値・方位を保持
 class MagnetometerData {
   /// X軸磁場 [μT]
   final double x;
@@ -28,6 +28,10 @@ class MagnetometerData {
   /// ノイズ値（基準値との差） [μT]
   final double noise;
 
+  /// 方位角（磁北からの角度）[度] 0-360
+  /// 0=北, 90=東, 180=南, 270=西
+  final double heading;
+
   /// タイムスタンプ
   final DateTime timestamp;
 
@@ -40,6 +44,7 @@ class MagnetometerData {
     required this.z,
     required this.magnitude,
     required this.noise,
+    required this.heading,
     required this.timestamp,
     required this.status,
   });
@@ -52,15 +57,32 @@ class MagnetometerData {
       z: 0,
       magnitude: AppConstants.defaultReferenceMag,
       noise: 0,
+      heading: 0,
       timestamp: DateTime.now(),
       status: MagStatus.unknown,
     );
   }
 
+  /// 方位の方角名を取得（8方位）
+  String get headingDirection {
+    if (heading >= 337.5 || heading < 22.5) return 'N';
+    if (heading >= 22.5 && heading < 67.5) return 'NE';
+    if (heading >= 67.5 && heading < 112.5) return 'E';
+    if (heading >= 112.5 && heading < 157.5) return 'SE';
+    if (heading >= 157.5 && heading < 202.5) return 'S';
+    if (heading >= 202.5 && heading < 247.5) return 'SW';
+    if (heading >= 247.5 && heading < 292.5) return 'W';
+    if (heading >= 292.5 && heading < 337.5) return 'NW';
+    return 'N';
+  }
+
+  /// 方位のフォーマット済み文字列
+  String get formattedHeading => '${heading.toStringAsFixed(0)}°';
+
   @override
   String toString() {
     return 'MagnetometerData(mag: ${magnitude.toStringAsFixed(1)}μT, '
-        'noise: ${noise.toStringAsFixed(1)}μT, status: $status)';
+        'noise: ${noise.toStringAsFixed(1)}μT, heading: $formattedHeading, status: $status)';
   }
 }
 
@@ -216,6 +238,13 @@ class MagnetometerService {
     // ステータスを判定
     final status = _calculateStatus(noise);
 
+    // 方位を計算: atan2(y, x) を使用
+    // 注意: 端末の向きによって軸の解釈が異なる
+    // iOSでは画面を上にした状態で、+Xが東、+Yが北
+    double heading = math.atan2(event.x, event.y) * 180 / math.pi;
+    // 0-360の範囲に正規化
+    if (heading < 0) heading += 360;
+
     // データを更新
     _latestData = MagnetometerData(
       x: event.x,
@@ -223,6 +252,7 @@ class MagnetometerService {
       z: event.z,
       magnitude: magnitude,
       noise: noise,
+      heading: heading,
       timestamp: DateTime.now(),
       status: status,
     );
@@ -251,6 +281,7 @@ class MagnetometerService {
       z: 0,
       magnitude: 0,
       noise: 0,
+      heading: 0,
       timestamp: DateTime.now(),
       status: MagStatus.unknown,
     );

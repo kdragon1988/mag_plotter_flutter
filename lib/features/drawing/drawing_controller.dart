@@ -240,10 +240,10 @@ class DrawingController extends ChangeNotifier {
 
   /// 面積を表示用文字列に変換
   String formatArea(double area) {
-    if (area >= 10000) {
-      return '${(area / 10000).toStringAsFixed(2)} ha';
+    if (area >= 1000000) {
+      return '${(area / 1000000).toStringAsFixed(2)} km²';
     } else {
-      return '${area.toStringAsFixed(1)} m²';
+      return '${area.toStringAsFixed(0)} m²';
     }
   }
 

@@ -51,5 +51,8 @@
 	<!-- モーションセンサーパーミッション -->
 	<key>NSMotionUsageDescription</key>
 	<string>磁気センサーを使用して磁場を計測します</string>
+	<!-- Google Maps API Key -->
+	<key>GMSApiKey</key>
+	<string>AIzaSyCxexX599NxUF4aNSSF-AxZYMxsESCc3Gc</string>
 </dict>
 </plist>
