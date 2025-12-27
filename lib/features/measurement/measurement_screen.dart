@@ -103,6 +103,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   bool _showMeasurementLayerPanel = false;
   bool _showRestrictedAreaPanel = false;
   bool _showMagPanel = false;
+  bool _isToolbarExpanded = true;
   MeasurementPoint? _selectedPoint;
   
   // 警戒区域レイヤー
@@ -410,75 +411,170 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       bottom: 100,
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // 検索ボタン
+          // 展開時のボタン群
+          if (_isToolbarExpanded) ...[
+            // 検索ボタン
+            _buildLabeledSideButton(
+              icon: Icons.search,
+              label: '検索',
+              isActive: false,
+              onTap: _showSearchDialog,
+            ),
+            const SizedBox(height: 6),
+            // 現在位置に移動ボタン
+            _buildLabeledSideButton(
+              icon: Icons.my_location,
+              label: '現在地',
+              isActive: false,
+              onTap: _moveToCurrentLocation,
+            ),
+            const SizedBox(height: 6),
+            // 作図ボタン
+            _buildLabeledSideButton(
+              icon: Icons.draw,
+              label: '作図',
+              isActive: _showDrawingToolbar,
+              onTap: () => setState(() => _showDrawingToolbar = !_showDrawingToolbar),
+            ),
+            const SizedBox(height: 6),
+            // MAG計測パネルボタン
+            _buildLabeledSideButton(
+              icon: Icons.sensors,
+              label: '磁場計測',
+              isActive: _showMagPanel || _isMeasuring,
+              badgeColor: _isMeasuring ? AppColors.statusDanger : null,
+              onTap: () => setState(() {
+                _showMagPanel = !_showMagPanel;
+                if (_showMagPanel) {
+                  _showLayerPanel = false;
+                  _showMeasurementLayerPanel = false;
+                }
+              }),
+            ),
+            const SizedBox(height: 6),
+            // 描画レイヤー管理ボタン
+            _buildLabeledSideButton(
+              icon: Icons.layers,
+              label: 'レイヤー',
+              isActive: _showLayerPanel,
+              onTap: () => setState(() {
+                _showLayerPanel = !_showLayerPanel;
+                if (_showLayerPanel) {
+                  _showMeasurementLayerPanel = false;
+                  _showMagPanel = false;
+                }
+              }),
+            ),
+            const SizedBox(height: 6),
+            // 計測レイヤー管理ボタン
+            _buildLabeledSideButton(
+              icon: Icons.scatter_plot,
+              label: '点群',
+              isActive: _showMeasurementLayerPanel,
+              onTap: () => setState(() {
+                _showMeasurementLayerPanel = !_showMeasurementLayerPanel;
+                if (_showMeasurementLayerPanel) {
+                  _showLayerPanel = false;
+                  _showMagPanel = false;
+                }
+              }),
+            ),
+            const SizedBox(height: 6),
+            // マップタイプ切替
+            _buildLabeledSideButton(
+              icon: _isSatelliteMode ? Icons.satellite_alt : Icons.map_outlined,
+              label: _isSatelliteMode ? '衛星' : '地図',
+              isActive: _isSatelliteMode,
+              onTap: () => setState(() => _isSatelliteMode = !_isSatelliteMode),
+            ),
+            const SizedBox(height: 6),
+          ],
+          // 展開/折りたたみボタン
           _buildSideButton(
-            icon: Icons.search,
-            isActive: false,
-            onTap: _showSearchDialog,
-          ),
-          const SizedBox(height: 8),
-          // 現在位置に移動ボタン
-          _buildSideButton(
-            icon: Icons.my_location,
-            isActive: false,
-            onTap: _moveToCurrentLocation,
-          ),
-          const SizedBox(height: 8),
-          // 作図ボタン
-          _buildSideButton(
-            icon: Icons.draw,
-            isActive: _showDrawingToolbar,
-            onTap: () => setState(() => _showDrawingToolbar = !_showDrawingToolbar),
-          ),
-          const SizedBox(height: 8),
-          // MAG計測パネルボタン
-          _buildSideButton(
-            icon: Icons.sensors,
-            isActive: _showMagPanel || _isMeasuring,
-            badgeColor: _isMeasuring ? AppColors.statusDanger : null,
+            icon: _isToolbarExpanded ? Icons.chevron_right : Icons.menu,
+            isActive: !_isToolbarExpanded,
+            badgeColor: _isMeasuring && !_isToolbarExpanded ? AppColors.statusDanger : null,
             onTap: () => setState(() {
-              _showMagPanel = !_showMagPanel;
-              if (_showMagPanel) {
+              _isToolbarExpanded = !_isToolbarExpanded;
+              // 折りたたみ時はパネルを閉じる
+              if (!_isToolbarExpanded) {
+                _showMagPanel = false;
                 _showLayerPanel = false;
                 _showMeasurementLayerPanel = false;
               }
             }),
-          ),
-          const SizedBox(height: 8),
-          // 描画レイヤー管理ボタン
-          _buildSideButton(
-            icon: Icons.layers,
-            isActive: _showLayerPanel,
-            onTap: () => setState(() {
-              _showLayerPanel = !_showLayerPanel;
-              if (_showLayerPanel) {
-                _showMeasurementLayerPanel = false;
-                _showMagPanel = false;
-              }
-            }),
-          ),
-          const SizedBox(height: 8),
-          // 計測レイヤー管理ボタン
-          _buildSideButton(
-            icon: Icons.scatter_plot,
-            isActive: _showMeasurementLayerPanel,
-            onTap: () => setState(() {
-              _showMeasurementLayerPanel = !_showMeasurementLayerPanel;
-              if (_showMeasurementLayerPanel) {
-                _showLayerPanel = false;
-                _showMagPanel = false;
-              }
-            }),
-          ),
-          const SizedBox(height: 8),
-          // マップタイプ切替
-          _buildSideButton(
-            icon: _isSatelliteMode ? Icons.satellite_alt : Icons.map_outlined,
-            isActive: _isSatelliteMode,
-            onTap: () => setState(() => _isSatelliteMode = !_isSatelliteMode),
           ),
         ],
+      ),
+    );
+  }
+
+  /// ラベル付きサイドボタンを構築
+  Widget _buildLabeledSideButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required VoidCallback onTap,
+    Color? badgeColor,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundCard.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isActive ? AppColors.accentPrimary : AppColors.border,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 6,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isActive ? AppColors.accentPrimary : AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isActive ? AppColors.accentPrimary : AppColors.textSecondary,
+                ),
+                if (badgeColor != null)
+                  Positioned(
+                    top: -3,
+                    right: -3,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: badgeColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.backgroundCard, width: 1),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
