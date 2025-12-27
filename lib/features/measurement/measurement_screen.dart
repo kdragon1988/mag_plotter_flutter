@@ -948,10 +948,11 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
       ),
       children: [
         // タイルレイヤー（標準 or 衛星）
+        // 衛星モード: Google Maps 衛星写真タイル
         if (_isSatelliteMode)
           TileLayer(
             urlTemplate:
-                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             userAgentPackageName: 'com.visionoid.magplotter',
           )
         else
