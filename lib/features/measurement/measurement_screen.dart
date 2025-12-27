@@ -102,6 +102,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   bool _showLayerPanel = false;
   bool _showMeasurementLayerPanel = false;
   bool _showRestrictedAreaPanel = false;
+  bool _showMagPanel = false;
   MeasurementPoint? _selectedPoint;
   
   // 警戒区域レイヤー
@@ -304,9 +305,6 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           // 上部パネル
           _buildTopPanel(),
 
-          // 下部パネル
-          _buildBottomPanel(),
-
           // 描画ツールバー
           if (_showDrawingToolbar)
             Positioned(
@@ -326,11 +324,11 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
           // コンパス表示（右上）
           _buildCompassDisplay(),
 
-          // 計測ボタン
-          if (!_showDrawingToolbar) _buildMeasureButton(),
-
           // 右側ボタン群
           _buildSideButtons(),
+
+          // MAG計測パネル
+          if (_showMagPanel) _buildMagPanel(),
 
           // レイヤー管理パネル（描画図形）
           if (_showLayerPanel) _buildLayerPanel(),
@@ -409,17 +407,34 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   Widget _buildSideButtons() {
     return Positioned(
       right: 12,
-      bottom: 150,
+      bottom: 100,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // MAG計測パネルボタン
+          _buildSideButton(
+            icon: Icons.sensors,
+            isActive: _showMagPanel || _isMeasuring,
+            badgeColor: _isMeasuring ? AppColors.statusDanger : null,
+            onTap: () => setState(() {
+              _showMagPanel = !_showMagPanel;
+              if (_showMagPanel) {
+                _showLayerPanel = false;
+                _showMeasurementLayerPanel = false;
+              }
+            }),
+          ),
+          const SizedBox(height: 8),
           // 描画レイヤー管理ボタン
           _buildSideButton(
             icon: Icons.layers,
             isActive: _showLayerPanel,
             onTap: () => setState(() {
               _showLayerPanel = !_showLayerPanel;
-              if (_showLayerPanel) _showMeasurementLayerPanel = false;
+              if (_showLayerPanel) {
+                _showMeasurementLayerPanel = false;
+                _showMagPanel = false;
+              }
             }),
           ),
           const SizedBox(height: 8),
@@ -429,7 +444,10 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
             isActive: _showMeasurementLayerPanel,
             onTap: () => setState(() {
               _showMeasurementLayerPanel = !_showMeasurementLayerPanel;
-              if (_showMeasurementLayerPanel) _showLayerPanel = false;
+              if (_showMeasurementLayerPanel) {
+                _showLayerPanel = false;
+                _showMagPanel = false;
+              }
             }),
           ),
           const SizedBox(height: 8),
@@ -449,31 +467,271 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
     required IconData icon,
     required bool isActive,
     required VoidCallback onTap,
+    Color? badgeColor,
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: AppColors.backgroundCard.withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isActive ? AppColors.accentPrimary : AppColors.border,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.backgroundCard.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: isActive ? AppColors.accentPrimary : AppColors.border,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: isActive ? AppColors.accentPrimary : AppColors.textSecondary,
+            ),
           ),
+          // バッジ表示（計測中インジケーター等）
+          if (badgeColor != null)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: badgeColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.backgroundCard, width: 1.5),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// MAG計測パネル
+  Widget _buildMagPanel() {
+    final statusColor = _noise < (_mission?.safeThreshold ?? AppConstants.defaultSafeThreshold)
+        ? AppColors.statusSafe
+        : _noise < (_mission?.dangerThreshold ?? AppConstants.defaultDangerThreshold)
+            ? AppColors.statusWarning
+            : AppColors.statusDanger;
+
+    return Positioned(
+      right: 56,
+      bottom: 100,
+      child: Container(
+        width: 180,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundCard.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 6,
+              blurRadius: 8,
             ),
           ],
         ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: isActive ? AppColors.accentPrimary : AppColors.textSecondary,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ヘッダー
+            Row(
+              children: [
+                Icon(
+                  Icons.sensors,
+                  size: 16,
+                  color: _isMeasuring ? AppColors.statusDanger : AppColors.accentPrimary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _isMeasuring ? 'MEASURING' : 'MAG SENSOR',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _isMeasuring ? AppColors.statusDanger : AppColors.accentPrimary,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            
+            // データ表示
+            Row(
+              children: [
+                Expanded(
+                  child: _buildMagDataItem(
+                    label: 'MAG',
+                    value: _magField.toStringAsFixed(1),
+                    unit: 'μT',
+                    color: AppColors.accentPrimary,
+                  ),
+                ),
+                Container(width: 1, height: 36, color: AppColors.border),
+                Expanded(
+                  child: _buildMagDataItem(
+                    label: 'NOISE',
+                    value: _noise.toStringAsFixed(1),
+                    unit: 'μT',
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            
+            // レイヤー選択
+            GestureDetector(
+              onTap: () => setState(() {
+                _showMagPanel = false;
+                _showMeasurementLayerPanel = true;
+              }),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundPrimary,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.scatter_plot,
+                      size: 12,
+                      color: _selectedMeasurementLayer?.color ?? AppColors.textHint,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _selectedMeasurementLayer?.name ?? 'レイヤー未選択',
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                          color: _selectedMeasurementLayer != null
+                              ? AppColors.textPrimary
+                              : AppColors.statusWarning,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 14,
+                      color: AppColors.textHint,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            
+            // 計測ボタン
+            GestureDetector(
+              onTap: _toggleMeasurement,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _isMeasuring
+                      ? AppColors.statusDanger
+                      : AppColors.accentPrimary,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_isMeasuring
+                              ? AppColors.statusDanger
+                              : AppColors.accentPrimary)
+                          .withValues(alpha: 0.4),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isMeasuring ? Icons.stop : Icons.play_arrow,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isMeasuring ? 'STOP' : 'START',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  /// MAGパネル用データ表示
+  Widget _buildMagDataItem({
+    required String label,
+    required String value,
+    required String unit,
+    required Color color,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 8,
+            color: AppColors.textSecondary,
+            letterSpacing: 0.5,
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              unit,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 8,
+                color: color.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -481,7 +739,7 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
   Widget _buildLayerPanel() {
     return Positioned(
       right: 56,
-      bottom: 150,
+      bottom: 100,
       child: Container(
         width: 260,
         constraints: const BoxConstraints(maxHeight: 400),
@@ -1535,222 +1793,6 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
     );
   }
 
-  Widget _buildBottomPanel() {
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [
-              AppColors.backgroundPrimary,
-              AppColors.backgroundPrimary.withValues(alpha: 0.9),
-              Colors.transparent,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildDataPanel(),
-                const SizedBox(height: 60),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDataPanel() {
-    final statusColor = _noise < (_mission?.safeThreshold ?? AppConstants.defaultSafeThreshold)
-        ? AppColors.statusSafe
-        : _noise < (_mission?.dangerThreshold ?? AppConstants.defaultDangerThreshold)
-            ? AppColors.statusWarning
-            : AppColors.statusDanger;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.backgroundCard.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildDataItem(
-              label: 'MAG FIELD',
-              value: _magField.toStringAsFixed(1),
-              unit: 'μT',
-              color: AppColors.accentPrimary,
-            ),
-          ),
-          Container(width: 1, height: 40, color: AppColors.border),
-          Expanded(
-            child: _buildDataItem(
-              label: 'NOISE',
-              value: _noise.toStringAsFixed(1),
-              unit: 'μT',
-              color: statusColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDataItem({
-    required String label,
-    required String value,
-    required String unit,
-    required Color color,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 9,
-            color: AppColors.textSecondary,
-            letterSpacing: 1,
-          ),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(width: 2),
-            Text(
-              unit,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11,
-                color: color.withValues(alpha: 0.7),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMeasureButton() {
-    return Positioned(
-      bottom: 75,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // モード表示（自動計測モード固定）
-            GestureDetector(
-              onTap: () => setState(() => _showMeasurementLayerPanel = true),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundCard.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.autorenew,
-                      size: 12,
-                      color: AppColors.accentPrimary,
-                    ),
-                    const SizedBox(width: 3),
-                    if (_selectedMeasurementLayer != null) ...[
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _selectedMeasurementLayer!.color,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        _selectedMeasurementLayer!.name,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.accentPrimary,
-                        ),
-                      ),
-                    ] else
-                      const Text(
-                        'レイヤー未選択',
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.statusWarning,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            // 計測ボタン
-            GestureDetector(
-              onTap: _toggleMeasurement,
-              child: Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _isMeasuring
-                      ? AppColors.statusDanger
-                      : AppColors.accentPrimary,
-                  boxShadow: [
-                    BoxShadow(
-                      color: (_isMeasuring
-                              ? AppColors.statusDanger
-                              : AppColors.accentPrimary)
-                          .withValues(alpha: 0.5),
-                      blurRadius: 12,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  _isMeasuring ? Icons.stop : Icons.play_arrow,
-                  color:
-                      _isMeasuring ? Colors.white : AppColors.backgroundPrimary,
-                  size: 28,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildSelectedPointInfo() {
     if (_selectedPoint == null) return const SizedBox.shrink();
