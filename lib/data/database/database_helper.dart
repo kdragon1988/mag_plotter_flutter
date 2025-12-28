@@ -27,7 +27,7 @@ class DatabaseHelper {
   static const String _databaseName = 'mag_plotter.db';
 
   /// データベースバージョン
-  static const int _databaseVersion = 3;
+  static const int _databaseVersion = 4;
 
   /// データベースを取得
   Future<Database> get database async {
@@ -119,6 +119,8 @@ class DatabaseHelper {
         is_visible INTEGER DEFAULT 1,
         show_edge_labels INTEGER DEFAULT 1,
         show_name_label INTEGER DEFAULT 1,
+        show_security_area INTEGER DEFAULT 0,
+        security_area_offset REAL DEFAULT 30.0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
@@ -177,6 +179,16 @@ class DatabaseHelper {
       );
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_measurement_points_layer ON measurement_points(layer_id)'
+      );
+    }
+
+    // バージョン4: 保安区域機能を追加
+    if (oldVersion < 4) {
+      await db.execute(
+        'ALTER TABLE drawing_shapes ADD COLUMN show_security_area INTEGER DEFAULT 0'
+      );
+      await db.execute(
+        'ALTER TABLE drawing_shapes ADD COLUMN security_area_offset REAL DEFAULT 30.0'
       );
     }
   }
