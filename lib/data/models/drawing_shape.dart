@@ -56,6 +56,12 @@ class DrawingShape {
   /// 名前ラベルを表示するか
   final bool showNameLabel;
 
+  /// 保安区域を表示するか（ポリゴンのみ）
+  final bool showSecurityArea;
+
+  /// 保安区域オフセット [m]（0-1000m）
+  final double securityAreaOffset;
+
   /// 作成日時
   final DateTime createdAt;
 
@@ -73,6 +79,8 @@ class DrawingShape {
     this.isVisible = true,
     this.showEdgeLabels = true,
     this.showNameLabel = true,
+    this.showSecurityArea = false,
+    this.securityAreaOffset = 30.0,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : createdAt = createdAt ?? DateTime.now(),
@@ -134,6 +142,8 @@ class DrawingShape {
       isVisible: (map['is_visible'] as int?) != 0,
       showEdgeLabels: (map['show_edge_labels'] as int?) != 0,
       showNameLabel: (map['show_name_label'] as int?) != 0,
+      showSecurityArea: (map['show_security_area'] as int?) == 1,
+      securityAreaOffset: (map['security_area_offset'] as num?)?.toDouble() ?? 30.0,
       createdAt: map['created_at'] != null
           ? DateTime.parse(map['created_at'] as String)
           : null,
@@ -156,6 +166,8 @@ class DrawingShape {
       'is_visible': isVisible ? 1 : 0,
       'show_edge_labels': showEdgeLabels ? 1 : 0,
       'show_name_label': showNameLabel ? 1 : 0,
+      'show_security_area': showSecurityArea ? 1 : 0,
+      'security_area_offset': securityAreaOffset,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -189,6 +201,8 @@ class DrawingShape {
     bool? isVisible,
     bool? showEdgeLabels,
     bool? showNameLabel,
+    bool? showSecurityArea,
+    double? securityAreaOffset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -203,6 +217,8 @@ class DrawingShape {
       isVisible: isVisible ?? this.isVisible,
       showEdgeLabels: showEdgeLabels ?? this.showEdgeLabels,
       showNameLabel: showNameLabel ?? this.showNameLabel,
+      showSecurityArea: showSecurityArea ?? this.showSecurityArea,
+      securityAreaOffset: securityAreaOffset ?? this.securityAreaOffset,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );

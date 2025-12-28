@@ -2362,10 +2362,22 @@ class _MeasurementScreenState extends State<MeasurementScreen> {
                   case 'nameLabel':
                     updated = currentShape.copyWith(showNameLabel: value);
                     break;
+                  case 'securityArea':
+                    updated = currentShape.copyWith(showSecurityArea: value);
+                    break;
                   default:
                     return;
                 }
                 
+                await _shapeRepo.update(updated);
+                setState(() {
+                  _drawingShapes[shapeIndex] = updated;
+                });
+                setSheetState(() {}); // パネル内も更新
+              },
+              onSecurityAreaOffsetChanged: (offset) async {
+                if (shapeIndex < 0) return;
+                final updated = currentShape.copyWith(securityAreaOffset: offset);
                 await _shapeRepo.update(updated);
                 setState(() {
                   _drawingShapes[shapeIndex] = updated;
@@ -2716,6 +2728,7 @@ class _HudOverlayPainter extends CustomPainter {
 class _ShapeEditPanelContent extends StatelessWidget {
   final DrawingShape shape;
   final void Function(String field, bool value) onToggleChanged;
+  final void Function(double offset) onSecurityAreaOffsetChanged;
   final void Function(Color) onColorChange;
   final VoidCallback onRename;
   final VoidCallback onMoveToShape;
@@ -2725,6 +2738,7 @@ class _ShapeEditPanelContent extends StatelessWidget {
   const _ShapeEditPanelContent({
     required this.shape,
     required this.onToggleChanged,
+    required this.onSecurityAreaOffsetChanged,
     required this.onColorChange,
     required this.onRename,
     required this.onMoveToShape,
@@ -2844,6 +2858,118 @@ class _ShapeEditPanelContent extends StatelessWidget {
               value: shape.showNameLabel,
               onChanged: (value) => onToggleChanged('nameLabel', value),
             ),
+
+            // 保安区域表示（ポリゴンのみ）
+            if (shape.type == ShapeType.polygon) ...[
+              const SizedBox(height: 12),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: 8),
+
+              const Text(
+                '保安区域',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 保安区域表示 ON/OFF
+              _buildToggleTile(
+                icon: Icons.security,
+                label: '保安区域表示',
+                value: shape.showSecurityArea,
+                onChanged: (value) => onToggleChanged('securityArea', value),
+              ),
+
+              // オフセット設定（保安区域ONの場合のみ）
+              if (shape.showSecurityArea) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.space_bar,
+                      size: 18,
+                      color: AppColors.textHint,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'オフセット距離',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              // タップで直接入力可能
+                              _SecurityAreaOffsetInput(
+                                value: shape.securityAreaOffset,
+                                onChanged: onSecurityAreaOffsetChanged,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          SliderTheme(
+                            data: SliderThemeData(
+                              activeTrackColor: AppColors.accentPrimary,
+                              inactiveTrackColor: AppColors.border,
+                              thumbColor: AppColors.accentPrimary,
+                              overlayColor: AppColors.accentPrimary.withValues(alpha: 0.2),
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                              trackHeight: 4,
+                            ),
+                            child: Slider(
+                              value: shape.securityAreaOffset.clamp(-500, 500),
+                              min: -500,
+                              max: 500,
+                              divisions: 100,
+                              onChanged: (value) => onSecurityAreaOffsetChanged(value),
+                            ),
+                          ),
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '-500m (外側)',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 9,
+                                  color: AppColors.textHint,
+                                ),
+                              ),
+                              Text(
+                                '0',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 9,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                              Text(
+                                '+500m (内側)',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 9,
+                                  color: AppColors.textHint,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
 
             const SizedBox(height: 12),
             const Divider(color: AppColors.border),
@@ -4119,5 +4245,156 @@ class _RestrictedAreaDetailPanelState extends State<_RestrictedAreaDetailPanel> 
         ),
       ],
     );
+  }
+}
+
+/// 保安区域オフセット入力ウィジェット
+///
+/// タップで直接メートル値を入力可能
+class _SecurityAreaOffsetInput extends StatelessWidget {
+  final double value;
+  final void Function(double) onChanged;
+
+  const _SecurityAreaOffsetInput({
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _showInputDialog(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundPrimary,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppColors.accentPrimary.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              value >= 0 ? '+${value.toInt()}' : '${value.toInt()}',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: value >= 0 ? AppColors.accentPrimary : AppColors.statusWarning,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const Text(
+              'm',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                color: AppColors.textHint,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.edit,
+              size: 12,
+              color: AppColors.textHint,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showInputDialog(BuildContext context) {
+    final controller = TextEditingController(text: value.toInt().toString());
+    
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.backgroundCard,
+        title: const Text(
+          'オフセット距離入力',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: false),
+              autofocus: true,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 18,
+                color: AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                suffixText: 'm',
+                suffixStyle: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 14,
+                  color: AppColors.textHint,
+                ),
+                hintText: '-500〜+500',
+                hintStyle: TextStyle(
+                  color: AppColors.textHint.withValues(alpha: 0.5),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.accentPrimary, width: 2),
+                ),
+              ),
+              onSubmitted: (text) {
+                _applyValue(dialogContext, text);
+              },
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '-500〜+500mの範囲で入力\n（+:内側、-:外側）',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.textHint,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text(
+              'キャンセル',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => _applyValue(dialogContext, controller.text),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accentPrimary,
+            ),
+            child: const Text(
+              '適用',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _applyValue(BuildContext dialogContext, String text) {
+    final parsed = double.tryParse(text);
+    if (parsed != null) {
+      final clamped = parsed.clamp(-500.0, 500.0);
+      onChanged(clamped);
+    }
+    Navigator.pop(dialogContext);
   }
 }

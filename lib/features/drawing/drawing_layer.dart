@@ -10,6 +10,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/models/drawing_shape.dart';
+import '../../utils/geometry_utils.dart';
 import 'drawing_controller.dart';
 import 'drawing_mode.dart';
 
@@ -402,6 +403,9 @@ class SavedShapesLayer extends StatelessWidget {
       layers.add(PolygonLayer(polygons: polygons));
     }
 
+    // 保安区域（ポリゴンの内側オフセット）
+    layers.add(_buildSecurityAreaLayer(visibleShapes));
+
     // ポリライン
     final polylines = visibleShapes
         .where((s) => s.type == ShapeType.polyline)
@@ -438,6 +442,48 @@ class SavedShapesLayer extends StatelessWidget {
     layers.add(_buildNameLabelsLayer(visibleShapes));
 
     return Stack(children: layers);
+  }
+
+  /// 保安区域レイヤーの構築
+  Widget _buildSecurityAreaLayer(List<DrawingShape> shapes) {
+    final polygons = <Polygon>[];
+
+    for (final shape in shapes) {
+      // ポリゴンで保安区域表示がONの場合のみ
+      if (shape.type != ShapeType.polygon || !shape.showSecurityArea) {
+        continue;
+      }
+
+      debugPrint('SecurityArea: shape=${shape.name}, offset=${shape.securityAreaOffset}, coords=${shape.coordinates.length}');
+
+      // 内側オフセットを計算
+      final offsetPolygon = GeometryUtils.offsetPolygonInward(
+        shape.coordinates,
+        shape.securityAreaOffset,
+      );
+
+      debugPrint('SecurityArea: offsetPolygon=${offsetPolygon?.length ?? "null"}');
+
+      if (offsetPolygon != null && offsetPolygon.length >= 3) {
+        // 保安区域（オフセットされた内側のポリゴン）を表示
+        // 黄色系の警告色で強調
+        polygons.add(Polygon(
+          points: offsetPolygon,
+          color: Colors.yellow.withValues(alpha: 0.15),
+          borderColor: Colors.orange.withValues(alpha: 0.9),
+          borderStrokeWidth: 2.5,
+          isFilled: true,
+        ));
+      }
+    }
+
+    debugPrint('SecurityArea: total polygons=${polygons.length}');
+
+    if (polygons.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return PolygonLayer(polygons: polygons);
   }
 
   /// 辺の長さラベルレイヤー
